@@ -15,12 +15,11 @@ import pandas as pd
 # 导入分析模块
 from analysis_multi import process_financial_data
 from analysis_mal import process_malaysia_financial_data
+from config import FLASK_CONFIG, MAX_FILE_SIZE, ALLOWED_EXTENSIONS
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
-
-# 允许的文件扩展名
-ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
+# 使用配置文件中的文件大小限制
+app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -115,19 +114,31 @@ def process_files():
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
                 )
 
-            except Exception as e:
+            except (ValueError, KeyError, pd.errors.EmptyDataError) as e:
                 app.logger.error(f"数据分析错误: {str(e)}")
                 app.logger.error(traceback.format_exc())
-                return jsonify({'error': f'数据分析失败: {str(e)}'}), 500
+                return jsonify({'error': f'数据分析失败: 请检查文件格式和数据完整性 - {str(e)}'}), 400
+            except Exception as e:
+                app.logger.error(f"数据分析意外错误: {str(e)}")
+                app.logger.error(traceback.format_exc())
+                return jsonify({'error': '系统处理出现意外错误，请联系管理员'}), 500
 
+    except (FileNotFoundError, PermissionError) as e:
+        app.logger.error(f"文件操作错误: {str(e)}")
+        return jsonify({'error': f'文件操作失败: {str(e)}'}), 400
     except Exception as e:
-        app.logger.error(f"文件处理错误: {str(e)}")
+        app.logger.error(f"文件处理意外错误: {str(e)}")
         app.logger.error(traceback.format_exc())
-        return jsonify({'error': f'文件处理失败: {str(e)}'}), 500
+        return jsonify({'error': '系统处理出现意外错误，请联系管理员'}), 500
 
 if __name__ == '__main__':
     print("🚀 启动财务数据分析系统...")
-    print("📊 访问地址: http://localhost:8080")
+    print(f"📊 访问地址: http://{FLASK_CONFIG['host']}:{FLASK_CONFIG['port']}")
     print("💡 使用 Ctrl+C 停止服务器")
     
-    app.run(debug=True, host='0.0.0.0', port=8080) 
+    # 使用配置文件中的Flask配置
+    app.run(
+        debug=FLASK_CONFIG['debug'], 
+        host=FLASK_CONFIG['host'], 
+        port=FLASK_CONFIG['port']
+    ) 

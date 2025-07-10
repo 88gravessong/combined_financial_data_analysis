@@ -516,7 +516,7 @@
                     result.innerHTML = `
                         <h3>✅ 处理完成！</h3>
                         <p>${moduleName}财务分析报告已生成</p>
-                        <a href="${url}" download="${downloadName}" class="download-btn">📥 下载结果文件</a>
+                        <a href="${url}" download="${downloadName}" class="download-btn" onclick="setTimeout(() => window.URL.revokeObjectURL('${url}'), 1000)">📥 下载结果文件</a>
                     `;
                 } else {
                     const errorData = await response.json();

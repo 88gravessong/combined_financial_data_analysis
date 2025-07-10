@@ -14,15 +14,21 @@ import numpy as np
 from openpyxl import load_workbook
 from pathlib import Path
 from typing import List, Union
+from config import get_exchange_rates, get_operation_fees
 
-# === 文件路径 ===
-orders_path     = '马7-1.1至4.30订单.xlsx'          # 订单表（第 2 行为注释）
-settlement_path = '马七 下 income_20250530073840.xlsx'  # 结算表
-cost_path       = '产品成本消耗表.xlsx'              # 产品成本消耗表
-output_path     = '订单_汇总_成本利润.xlsx'
+# === 配置参数 ===
+# 注意：这些路径仅用于说明文件格式，实际使用时通过函数参数传入
+# orders_path     = '马7-1.1至4.30订单.xlsx'          # 订单表（第 2 行为注释）
+# settlement_path = '马七 下 income_20250530073840.xlsx'  # 结算表
+# cost_path       = '产品成本消耗表.xlsx'              # 产品成本消耗表
+# output_path     = '订单_汇总_成本利润.xlsx'
 
-# 出库订单固定操作费（RM）
-OP_FEE = {'xifashui': 2.5, 'kingstick': 2.5}
+# 动态获取汇率和操作费配置
+exchange_rates = get_exchange_rates()
+MYR_PER_RMB = exchange_rates['MYR_PER_RMB']
+
+# 出库订单操作费（RM）- 从配置文件获取
+OP_FEE = get_operation_fees()['malaysia']
 
 def merge_order_files_mal(order_files: List[Union[str, Path]]) -> pd.DataFrame:
     """合并多个马来订单表文件（跳过第2行注释）"""
@@ -43,9 +49,12 @@ def merge_order_files_mal(order_files: List[Union[str, Path]]) -> pd.DataFrame:
             
             all_orders.append(df)
             print(f"✅ 已读取马来订单文件: {Path(file_path).name} ({len(df)} 行)")
+        except FileNotFoundError:
+            print(f"❌ 马来订单文件不存在: {file_path}")
+            raise
         except Exception as e:
             print(f"❌ 读取马来订单文件失败 {file_path}: {e}")
-            raise
+            raise ValueError(f"无法读取马来订单文件 {file_path}: {e}")
     
     if not all_orders:
         raise ValueError("没有成功读取任何马来订单文件")
@@ -73,9 +82,12 @@ def merge_settlement_files_mal(settlement_files: List[Union[str, Path]]) -> pd.D
             
             all_settlements.append(df)
             print(f"✅ 已读取马来结算文件: {Path(file_path).name} ({len(df)} 行)")
+        except FileNotFoundError:
+            print(f"❌ 马来结算文件不存在: {file_path}")
+            raise
         except Exception as e:
             print(f"❌ 读取马来结算文件失败 {file_path}: {e}")
-            raise
+            raise ValueError(f"无法读取马来结算文件 {file_path}: {e}")
     
     if not all_settlements:
         raise ValueError("没有成功读取任何马来结算文件")
@@ -129,7 +141,7 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     
     # -------- 4) 计算操作费（未出库 = 0） --------
     order_df['操作费'] = np.where(order_df['is_shipped'],
-                               order_df['Seller SKU'].map(OP_FEE).fillna(0), 0.0)
+                               order_df['Seller SKU'].map(OP_FEE).fillna(OP_FEE.get('default', 2.5)), 0.0)
     
     order_df['shipped_qty'] = np.where(order_df['is_shipped'], order_df['Quantity'], 0)
     order_df['signed_qty']  = np.where(order_df['is_signed'],  order_df['Quantity'], 0)
@@ -170,10 +182,10 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     
     # -------- 7) 利润相关指标 --------
     sku['sku产品成本']   = sku['出库sku数'] * sku['单sku马来币成本']
-    sku['马来币操作费'] = sku['总操作费'] * 0.6
+    sku['马来币操作费'] = sku['总操作费'] * MYR_PER_RMB
     sku['利润']       = (sku['总结算金额'] - sku['马来币操作费'] - sku['sku产品成本']
                        - sku['马来币ads消耗'] - sku['马来币gmvmax消耗'])
-    sku['人民币利润']  = sku['利润'] / 0.6
+    sku['人民币利润']  = sku['利润'] / MYR_PER_RMB
     sku['毛利率']     = np.where(sku['总结算金额'] != 0, sku['利润'] / sku['总结算金额'], 0)
     sku['每单利润']    = np.where(sku['签收订单数'] != 0, sku['人民币利润'] / sku['签收订单数'], 0)
     

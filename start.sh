@@ -30,8 +30,26 @@ done
 
 echo "✅ 所有依赖已就绪"
 echo ""
-echo "🚀 启动Web服务器..."
-echo "📊 访问地址: http://localhost:8080"
+
+# 安全检查
+echo "� 执行安全检查..."
+if [ "${FLASK_DEBUG:-false}" = "true" ]; then
+    echo "⚠️  警告: 调试模式已启用，请确保这是开发环境！"
+fi
+
+if [ "${FLASK_HOST:-127.0.0.1}" = "0.0.0.0" ]; then
+    echo "⚠️  警告: 服务器绑定到所有网络接口，请确保网络安全！"
+fi
+
+# 显示当前配置
+echo "📋 当前配置:"
+python3 config.py
+echo ""
+
+echo "�🚀 启动Web服务器..."
+host=${FLASK_HOST:-127.0.0.1}
+port=${FLASK_PORT:-8080}
+echo "📊 访问地址: http://$host:$port"
 echo "💡 使用 Ctrl+C 停止服务器"
 echo ""
 

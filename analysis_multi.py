@@ -14,9 +14,15 @@ import pandas as pd
 from pathlib import Path
 from typing import List, Union
 import re
+from config import get_exchange_rates, get_operation_fees
 
-# 汇率设置
-IDR_PER_RMB, IDR_PER_USD = 2300, 16000
+# 动态获取汇率配置
+exchange_rates = get_exchange_rates()
+IDR_PER_RMB = exchange_rates['IDR_PER_RMB']
+IDR_PER_USD = exchange_rates['IDR_PER_USD']
+
+# 获取操作费配置
+operation_fees = get_operation_fees()['indonesia']
 
 def preprocess_combo_sku(df: pd.DataFrame, sku_col: str, qty_col: str) -> pd.DataFrame:
     """
@@ -54,16 +60,20 @@ def preprocess_combo_sku(df: pd.DataFrame, sku_col: str, qty_col: str) -> pd.Dat
             match = re.match(pattern, sku_str)
             if match:
                 multiplier = multiplier_func(match)
-                # 只处理倍数大于1的情况
-                if multiplier > 1:
-                    base_sku = base_sku_func(match)
+                base_sku = base_sku_func(match)
+                
+                # 处理所有匹配的组合SKU（包括倍数为1的情况，用于标准化）
+                if multiplier >= 1:
                     new_qty = original_qty * multiplier
                     
                     df.loc[idx, sku_col] = base_sku
                     df.loc[idx, qty_col] = new_qty
                     combo_count += 1
                     
-                    print(f"🔄 组合SKU转换: {sku_str} -> {base_sku}, 数量: {original_qty} -> {new_qty}")
+                    if multiplier > 1:
+                        print(f"🔄 组合SKU转换: {sku_str} -> {base_sku}, 数量: {original_qty} -> {new_qty}")
+                    else:
+                        print(f"🔄 SKU标准化: {sku_str} -> {base_sku}")
                 break
     
     if combo_count > 0:
@@ -84,9 +94,15 @@ def merge_order_files(order_files: List[Union[str, Path]]) -> pd.DataFrame:
             df = df.rename(columns={df.columns[0]: "order_id"})
             all_orders.append(df)
             print(f"✅ 已读取订单文件: {Path(file_path).name} ({len(df)} 行)")
+        except FileNotFoundError:
+            print(f"❌ 订单文件不存在: {file_path}")
+            raise
+        except pd.errors.EmptyDataError:
+            print(f"❌ 订单文件为空: {file_path}")
+            raise
         except Exception as e:
             print(f"❌ 读取订单文件失败 {file_path}: {e}")
-            raise
+            raise ValueError(f"无法读取订单文件 {file_path}: {e}")
     
     if not all_orders:
         raise ValueError("没有成功读取任何订单文件")
@@ -119,9 +135,15 @@ def merge_settlement_files(settlement_files: List[Union[str, Path]]) -> pd.DataF
             
             all_settlements.append(df)
             print(f"✅ 已读取结算文件: {Path(file_path).name} ({len(df)} 行)")
+        except FileNotFoundError:
+            print(f"❌ 结算文件不存在: {file_path}")
+            raise
+        except pd.errors.EmptyDataError:
+            print(f"❌ 结算文件为空: {file_path}")
+            raise
         except Exception as e:
             print(f"❌ 读取结算文件失败 {file_path}: {e}")
-            raise
+            raise ValueError(f"无法读取结算文件 {file_path}: {e}")
     
     if not all_settlements:
         raise ValueError("没有成功读取任何结算文件")
@@ -217,10 +239,12 @@ def process_financial_data(order_files: List[Union[str, Path]],
     lines = order.groupby("order_id")["order_id"].transform("size")
     order["settlement_per_line"] = order["Total settlement amount"] / lines
 
-    # 运营费用计算
+    # 运营费用计算 - 使用配置文件中的费率
     tot_qty = order.groupby("order_id")[qty_col].transform("sum")
+    single_fee = operation_fees['single_item']
+    multi_fee = operation_fees['multi_item']
     order["order_fee_rmb"] = [
-        2.0 if (s=="yes" and q==1) else 2.5 if (s=="yes" and q>1) else 0.0
+        single_fee if (s=="yes" and q==1) else multi_fee if (s=="yes" and q>1) else 0.0
         for s,q in zip(order["_shipped"], tot_qty)
     ]
     order["operation_fee_per_line_rmb"] = order.groupby("order_id")["order_fee_rmb"].transform("max") / lines
