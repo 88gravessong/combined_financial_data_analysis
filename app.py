@@ -15,7 +15,6 @@ import pandas as pd
 # 导入分析模块
 from analysis_multi import process_financial_data
 from analysis_mal import process_malaysia_financial_data
-from analysis_cb_mal import process_malaysia_shipping_financial_data
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
@@ -99,14 +98,7 @@ def process_files():
                         output_dir=temp_path
                     )
                     download_name = '马来跨境店财务分析结果.xlsx'
-                elif analysis_type == 'shipping':
-                    output_path = process_malaysia_shipping_financial_data(
-                        order_files=order_paths,
-                        settlement_files=settlement_paths,
-                        consumption_file=consumption_path,
-                        output_dir=temp_path
-                    )
-                    download_name = '马来跨境发货财务分析结果.xlsx'
+                
                 else:  # indonesia (默认)
                     output_path = process_financial_data(
                         order_files=order_paths,

@@ -21,8 +21,9 @@ settlement_path = '马七 下 income_20250530073840.xlsx'  # 结算表
 cost_path       = '产品成本消耗表.xlsx'              # 产品成本消耗表
 output_path     = '订单_汇总_成本利润.xlsx'
 
-# 出库订单固定操作费（RM）
-OP_FEE = {'xifashui': 2.5, 'kingstick': 2.5}
+# 出库订单固定操作费（人民币）
+# 注意：单位是人民币（RMB）。仅在成本表未提供“订单操作费”(人民币)时作为后备值使用。
+OP_FEE_FALLBACK = {'xifashui': 2.5, 'kingstick': 2.5}
 
 def merge_order_files_mal(order_files: List[Union[str, Path]]) -> pd.DataFrame:
     """合并多个马来订单表文件（跳过第2行注释）"""
@@ -133,14 +134,39 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     order_df['cancel_before_ship'] = order_df['is_cancelled'] & ~order_df['is_shipped']
     order_df['cancel_after_ship']  = order_df['is_cancelled'] &  order_df['is_shipped']
     
-    # -------- 4) 计算操作费（未出库 = 0） --------
-    order_df['操作费'] = np.where(order_df['is_shipped'],
-                               order_df['Seller SKU'].map(OP_FEE).fillna(0), 0.0)
+    # -------- 4) 读取产品消耗成本表，并确定操作费来源 --------
+    cost = pd.read_excel(consumption_file)
+    cost.columns = cost.columns.str.strip()
+    print(f"📊 已读取产品消耗文件: {Path(consumption_file).name} ({len(cost)} 行)")
     
+    # 动态识别列名
+    sku_col   = 'Seller SKU' if 'Seller SKU' in cost.columns else 'seller sku'
+    unit_col  = '单sku马来币成本' if '单sku马来币成本' in cost.columns else '马来币单sku成本'
+    # 订单操作费列（单位：人民币 RMB；若缺失则使用后备映射）
+    op_fee_candidates = ['订单操作费', '订单操作费_RMB', '人民币订单操作费', '操作费']
+    op_fee_col = next((c for c in op_fee_candidates if c in cost.columns), None)
+    
+    keep_cols = [sku_col, unit_col, '马来币ads消耗', '马来币gmvmax消耗'] + ([op_fee_col] if op_fee_col else [])
+    cost_sub = (cost[keep_cols]
+                .rename(columns={sku_col: 'Seller SKU', unit_col: '单sku马来币成本',
+                                 (op_fee_col if op_fee_col else '订单操作费'): '订单操作费'}))
+    for col in ['单sku马来币成本', '马来币ads消耗', '马来币gmvmax消耗', '订单操作费']:
+        if col in cost_sub.columns:
+            cost_sub[col] = pd.to_numeric(cost_sub[col], errors='coerce').fillna(0)
+    # 计算订单级操作费（未出库=0；优先用表格里的“订单操作费”）
+    if '订单操作费' in cost_sub.columns:
+        op_fee_map = cost_sub.set_index('Seller SKU')['订单操作费']
+        order_df['操作费'] = np.where(order_df['is_shipped'],
+                                   order_df['Seller SKU'].map(op_fee_map).fillna(0), 0.0)
+    else:
+        order_df['操作费'] = np.where(order_df['is_shipped'],
+                                   order_df['Seller SKU'].map(OP_FEE_FALLBACK).fillna(0), 0.0)
+
+    # -------- 5) 数量辅助列 --------
     order_df['shipped_qty'] = np.where(order_df['is_shipped'], order_df['Quantity'], 0)
     order_df['signed_qty']  = np.where(order_df['is_signed'],  order_df['Quantity'], 0)
-    
-    # -------- 5) SKU 层汇总（基础指标） --------
+
+    # -------- 6) SKU 层汇总（基础指标） --------
     sku = (order_df
            .groupby('Seller SKU', as_index=False)
            .agg(总结算金额      = ('Total settlement amount', 'sum'),
@@ -155,25 +181,11 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     sku['签收率']      = sku['签收订单数'] / sku['订单数']
     sku['出库前取消率'] = sku['出库前取消订单'] / sku['订单数']
     sku['出库后取消率'] = sku['出库后取消订单'] / sku['订单数']
-    
-    # -------- 6) 合并产品消耗成本表 --------
-    cost = pd.read_excel(consumption_file)
-    cost.columns = cost.columns.str.strip()
-    print(f"📊 已读取产品消耗文件: {Path(consumption_file).name} ({len(cost)} 行)")
-    
-    # 动态识别列名
-    sku_col   = 'Seller SKU' if 'Seller SKU' in cost.columns else 'seller sku'
-    unit_col  = '单sku马来币成本' if '单sku马来币成本' in cost.columns else '马来币单sku成本'
-    
-    cost_sub = (cost[[sku_col, unit_col, '马来币ads消耗', '马来币gmvmax消耗']]
-                .rename(columns={sku_col: 'Seller SKU', unit_col: '单sku马来币成本'}))
-    cost_sub[['单sku马来币成本', '马来币ads消耗', '马来币gmvmax消耗']] = \
-        cost_sub[['单sku马来币成本', '马来币ads消耗', '马来币gmvmax消耗']].apply(
-            pd.to_numeric, errors='coerce').fillna(0)
-    
+
+    # 合并成本消耗子表
     sku = (sku.merge(cost_sub, on='Seller SKU', how='left')
               .fillna({'单sku马来币成本': 0, '马来币ads消耗': 0, '马来币gmvmax消耗': 0}))
-    
+
     # -------- 7) 利润相关指标 --------
     sku['sku产品成本']   = sku['出库sku数'] * sku['单sku马来币成本']
     sku['马来币操作费'] = sku['总操作费'] * 0.6
