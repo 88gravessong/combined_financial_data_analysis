@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-analysis_mal.py
+analysis_cb_mal.py
 ------------------------------------------------
-马来跨境店财务数据分析模块
+马来跨境发货财务数据分析模块
 - 支持多个订单表文件合并
 - 支持多个结算表文件合并
 - 单个产品消耗表
+- 操作费为0
 """
 
 import pandas as pd
@@ -19,13 +20,13 @@ from typing import List, Union
 orders_path     = '马7-1.1至4.30订单.xlsx'          # 订单表（第 2 行为注释）
 settlement_path = '马七 下 income_20250530073840.xlsx'  # 结算表
 cost_path       = '产品成本消耗表.xlsx'              # 产品成本消耗表
-output_path     = '订单_汇总_成本利润.xlsx'
+output_path     = '马来跨境发货_汇总_成本利润.xlsx'
 
-# 出库订单固定操作费（RM）
-OP_FEE = {'xifashui': 2.5, 'kingstick': 2.5}
+# 出库订单固定操作费（RM）- 跨境发货操作费为0
+OP_FEE = {'xifashui': 0.0, 'kingstick': 0.0}
 
-def merge_order_files_mal(order_files: List[Union[str, Path]]) -> pd.DataFrame:
-    """合并多个马来订单表文件（跳过第2行注释）"""
+def merge_order_files_mal_shipping(order_files: List[Union[str, Path]]) -> pd.DataFrame:
+    """合并多个马来跨境发货订单表文件（跳过第2行注释）"""
     all_orders = []
     
     for file_path in order_files:
@@ -42,22 +43,22 @@ def merge_order_files_mal(order_files: List[Union[str, Path]]) -> pd.DataFrame:
             df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0).astype(int)
             
             all_orders.append(df)
-            print(f"✅ 已读取马来订单文件: {Path(file_path).name} ({len(df)} 行)")
+            print(f"✅ 已读取马来跨境发货订单文件: {Path(file_path).name} ({len(df)} 行)")
         except Exception as e:
-            print(f"❌ 读取马来订单文件失败 {file_path}: {e}")
+            print(f"❌ 读取马来跨境发货订单文件失败 {file_path}: {e}")
             raise
     
     if not all_orders:
-        raise ValueError("没有成功读取任何马来订单文件")
+        raise ValueError("没有成功读取任何马来跨境发货订单文件")
     
     # 合并所有订单数据
     merged_orders = pd.concat(all_orders, ignore_index=True)
-    print(f"📋 马来订单数据合并完成: 总计 {len(merged_orders)} 行")
+    print(f"📋 马来跨境发货订单数据合并完成: 总计 {len(merged_orders)} 行")
     
     return merged_orders
 
-def merge_settlement_files_mal(settlement_files: List[Union[str, Path]]) -> pd.DataFrame:
-    """合并多个马来结算表文件"""
+def merge_settlement_files_mal_shipping(settlement_files: List[Union[str, Path]]) -> pd.DataFrame:
+    """合并多个马来跨境发货结算表文件"""
     all_settlements = []
     
     for file_path in settlement_files:
@@ -72,26 +73,26 @@ def merge_settlement_files_mal(settlement_files: List[Union[str, Path]]) -> pd.D
             df['Order/adjustment ID'] = df['Order/adjustment ID'].astype(str)
             
             all_settlements.append(df)
-            print(f"✅ 已读取马来结算文件: {Path(file_path).name} ({len(df)} 行)")
+            print(f"✅ 已读取马来跨境发货结算文件: {Path(file_path).name} ({len(df)} 行)")
         except Exception as e:
-            print(f"❌ 读取马来结算文件失败 {file_path}: {e}")
+            print(f"❌ 读取马来跨境发货结算文件失败 {file_path}: {e}")
             raise
     
     if not all_settlements:
-        raise ValueError("没有成功读取任何马来结算文件")
+        raise ValueError("没有成功读取任何马来跨境发货结算文件")
     
     # 合并所有结算数据
     merged_settlements = pd.concat(all_settlements, ignore_index=True)
-    print(f"💳 马来结算数据合并完成: 总计 {len(merged_settlements)} 行")
+    print(f"💳 马来跨境发货结算数据合并完成: 总计 {len(merged_settlements)} 行")
     
     return merged_settlements
 
-def process_malaysia_financial_data(order_files: List[Union[str, Path]], 
+def process_malaysia_shipping_financial_data(order_files: List[Union[str, Path]], 
                                   settlement_files: List[Union[str, Path]], 
                                   consumption_file: Union[str, Path],
                                   output_dir: Union[str, Path] = ".") -> Path:
     """
-    处理马来跨境店财务数据分析
+    处理马来跨境发货财务数据分析
     
     Args:
         order_files: 订单文件列表
@@ -103,13 +104,13 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
         输出文件路径
     """
     
-    print("🚀 开始马来跨境店财务数据分析...")
+    print("🚀 开始马来跨境发货财务数据分析...")
     
     # -------- 1) 读取订单表（跳过第 2 行注释） --------
-    order_df = merge_order_files_mal(order_files)
+    order_df = merge_order_files_mal_shipping(order_files)
     
     # -------- 2) 读取结算表并合并结算金额 --------
-    sett_df = merge_settlement_files_mal(settlement_files)
+    sett_df = merge_settlement_files_mal_shipping(settlement_files)
     
     order_df = (order_df
                 .merge(sett_df[['Order/adjustment ID', 'Total settlement amount']],
@@ -133,9 +134,8 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     order_df['cancel_before_ship'] = order_df['is_cancelled'] & ~order_df['is_shipped']
     order_df['cancel_after_ship']  = order_df['is_cancelled'] &  order_df['is_shipped']
     
-    # -------- 4) 计算操作费（未出库 = 0） --------
-    order_df['操作费'] = np.where(order_df['is_shipped'],
-                               order_df['Seller SKU'].map(OP_FEE).fillna(0), 0.0)
+    # -------- 4) 计算操作费（跨境发货操作费为0） --------
+    order_df['操作费'] = 0.0  # 跨境发货操作费为0
     
     order_df['shipped_qty'] = np.where(order_df['is_shipped'], order_df['Quantity'], 0)
     order_df['signed_qty']  = np.where(order_df['is_signed'],  order_df['Quantity'], 0)
@@ -176,7 +176,7 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     
     # -------- 7) 利润相关指标 --------
     sku['sku产品成本']   = sku['出库sku数'] * sku['单sku马来币成本']
-    sku['马来币操作费'] = sku['总操作费'] * 0.6
+    sku['马来币操作费'] = sku['总操作费'] * 0.6  # 操作费为0，所以这里也是0
     sku['利润']       = (sku['总结算金额'] - sku['马来币操作费'] - sku['sku产品成本']
                        - sku['马来币ads消耗'] - sku['马来币gmvmax消耗'])
     sku['人民币利润']  = sku['利润'] / 0.6
@@ -188,12 +188,12 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     order_df = order_df[first_cols + [c for c in order_df.columns if c not in first_cols]]
     
     # -------- 9) 导出 --------
-    output_path = Path(output_dir) / '马来跨境店财务分析结果.xlsx'
+    output_path = Path(output_dir) / '马来跨境发货财务分析结果.xlsx'
     
     with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
         order_df.to_excel(writer, sheet_name='订单表_含结算金额和操作费', index=False)
         sku.to_excel(writer, sheet_name='sku总结算金额和操作费', index=False)
         cost.to_excel(writer, sheet_name='产品消耗成本表', index=False)
     
-    print(f'✔ 马来跨境店分析完成 → {output_path}')
+    print(f'✔ 马来跨境发货分析完成 → {output_path}')
     return output_path

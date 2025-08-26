@@ -15,15 +15,58 @@
 ```
 ├── app.py              # Flask Web服务器
 ├── analysis_multi.py   # 多文件分析引擎  
-├── analysis.py         # 原始单文件分析脚本
+├── analysis_mal.py     # 马来西亚财务分析模块
 ├── index.html          # Web前端页面
 ├── requirements.txt    # 项目依赖
+├── start.sh           # 本地启动脚本
+├── docker-start.sh    # Docker一键启动脚本
+├── Dockerfile         # Docker镜像构建文件
+├── docker-compose.yml # Docker Compose配置
+├── .dockerignore      # Docker构建忽略文件
+├── Docker-README.md   # Docker部署详细指南
+├── 使用说明.md        # 详细使用说明
 └── README.md          # 项目说明
 ```
 
 ## 🚀 快速开始
 
-### 1. 安装依赖
+### 方式一：Docker部署（推荐）
+
+#### 1. 使用一键脚本
+
+```bash
+./docker-start.sh
+```
+
+#### 2. 手动部署
+
+```bash
+# 构建镜像
+docker-compose build
+
+# 启动服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+
+# 停止服务
+docker-compose down
+```
+
+#### 3. 直接使用Docker
+
+```bash
+# 构建镜像
+docker build -t financial-analysis .
+
+# 运行容器
+docker run -d -p 8080:8080 --name financial-app financial-analysis
+```
+
+### 方式二：本地部署
+
+#### 1. 安装依赖
 
 ```bash
 pip install -r requirements.txt
@@ -34,15 +77,26 @@ pip install -r requirements.txt
 pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
 ```
 
-### 2. 启动服务
+#### 2. 启动服务
 
 ```bash
 python app.py
+# 或使用启动脚本
+./start.sh
 ```
 
-### 3. 访问系统
+### 访问系统
 
-打开浏览器访问：`http://localhost:5000`
+打开浏览器访问：`http://localhost:8080`
+
+## 🐳 Docker部署优势
+
+- **🔒 环境隔离**: 避免本地环境污染和依赖冲突
+- **⚡ 快速部署**: 一键启动，无需配置Python环境
+- **🚀 易于扩展**: 支持容器编排和负载均衡
+- **📦 便携性强**: 在任何支持Docker的环境中运行
+- **🛡️ 安全性好**: 使用非root用户运行，包含健康检查
+- **🔄 自动重启**: 容器异常时自动重启服务
 
 ## 📊 使用说明
 
@@ -105,6 +159,50 @@ IDR_PER_RMB, IDR_PER_USD = 2300, 16000  # 印尼盾对人民币和美元汇率
 1. **SSL证书错误**: 使用 `--trusted-host` 参数安装依赖
 2. **列名识别失败**: 检查Excel文件中的列名是否包含关键字
 3. **内存不足**: 减少上传文件大小或增加系统内存
+
+### Docker相关问题
+
+1. **容器启动失败**: 
+   ```bash
+   # 查看详细日志
+   docker-compose logs financial-analysis
+   
+   # 重新构建镜像
+   docker-compose build --no-cache
+   ```
+
+2. **端口冲突**: 
+   ```bash
+   # 修改docker-compose.yml中的端口映射
+   ports:
+     - "8081:8080"  # 改为其他端口
+   ```
+
+3. **权限问题**: 
+   ```bash
+   # 确保临时目录有正确权限
+   mkdir -p temp
+   chmod 755 temp
+   ```
+
+### Docker管理命令
+
+```bash
+# 查看容器状态
+docker-compose ps
+
+# 重启服务
+docker-compose restart
+
+# 更新并重新部署
+docker-compose pull && docker-compose up -d
+
+# 清理未使用的镜像
+docker system prune
+
+# 查看容器资源使用
+docker stats financial-analysis-app
+```
 
 ### 日志查看
 
