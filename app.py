@@ -8,13 +8,13 @@ import os
 import tempfile
 import traceback
 from pathlib import Path
-from flask import Flask, request, send_file, jsonify, render_template_string
+from flask import Flask, request, send_file, jsonify, render_template_string, redirect
 from werkzeug.utils import secure_filename
 import pandas as pd
 
 # 导入分析模块
-from analysis_multi import process_financial_data
-from analysis_mal import process_malaysia_financial_data
+from analysis_multi import process_financial_data, compute_indonesia_summary
+from analysis_mal import process_malaysia_financial_data, compute_malaysia_summary
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB
@@ -36,6 +36,11 @@ def index():
         <h1>错误</h1>
         <p>找不到 index.html 文件。请确保前端文件存在。</p>
         """, 404
+
+@app.route('/result')
+def result_page():
+    """兼容性路由：访问 /result 时重定向到首页"""
+    return redirect('/', code=302)
 
 @app.route('/process', methods=['POST'])
 def process_files():
@@ -118,6 +123,77 @@ def process_files():
 
             except Exception as e:
                 app.logger.error(f"数据分析错误: {str(e)}")
+                app.logger.error(traceback.format_exc())
+                return jsonify({'error': f'数据分析失败: {str(e)}'}), 500
+
+    except Exception as e:
+        app.logger.error(f"文件处理错误: {str(e)}")
+        app.logger.error(traceback.format_exc())
+        return jsonify({'error': f'文件处理失败: {str(e)}'}), 500
+
+
+@app.route('/process_summary', methods=['POST'])
+def process_summary():
+    """处理上传的文件，返回用于前端渲染的概要指标(JSON)"""
+    try:
+        analysis_type = request.form.get('analysis_type', 'indonesia')
+
+        if 'orders' not in request.files or 'settlements' not in request.files or 'consumption' not in request.files:
+            return jsonify({'error': '缺少必要的文件。请确保上传了订单表、结算表和产品消耗表。'}), 400
+
+        order_files = request.files.getlist('orders')
+        settlement_files = request.files.getlist('settlements')
+        consumption_file = request.files['consumption']
+
+        all_files = order_files + settlement_files + [consumption_file]
+        for file in all_files:
+            if file.filename == '' or not allowed_file(file.filename):
+                return jsonify({'error': f'文件 {file.filename} 格式不正确，请上传Excel文件'}), 400
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            order_paths = []
+            for i, file in enumerate(order_files):
+                filename = f"order_{i+1}_{secure_filename(file.filename)}"
+                file_path = temp_path / filename
+                file.save(str(file_path))
+                order_paths.append(file_path)
+
+            settlement_paths = []
+            for i, file in enumerate(settlement_files):
+                filename = f"settlement_{i+1}_{secure_filename(file.filename)}"
+                file_path = temp_path / filename
+                file.save(str(file_path))
+                settlement_paths.append(file_path)
+
+            consumption_filename = f"consumption_{secure_filename(consumption_file.filename)}"
+            consumption_path = temp_path / consumption_filename
+            consumption_file.save(str(consumption_path))
+
+            try:
+                if analysis_type == 'malaysia':
+                    df = compute_malaysia_summary(
+                        order_files=order_paths,
+                        settlement_files=settlement_paths,
+                        consumption_file=consumption_path,
+                    )
+                else:
+                    df = compute_indonesia_summary(
+                        order_files=order_paths,
+                        settlement_files=settlement_paths,
+                        consumption_file=consumption_path,
+                    )
+
+                # 转换为JSON
+                # 数值格式统一，前端再负责显示
+                records = df.to_dict(orient='records')
+                return jsonify({
+                    'summary': records,
+                    'count': len(records)
+                })
+            except Exception as e:
+                app.logger.error(f"数据分析（概要）错误: {str(e)}")
                 app.logger.error(traceback.format_exc())
                 return jsonify({'error': f'数据分析失败: {str(e)}'}), 500
 
