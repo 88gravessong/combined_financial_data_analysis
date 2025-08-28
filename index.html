@@ -245,6 +245,39 @@
             box-shadow: 0 5px 15px rgba(255, 107, 107, 0.4);
         }
 
+        /* Summary table styles */
+        .summary-container {
+            margin-top: 24px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+            overflow: hidden;
+            display: none;
+        }
+        .summary-header {
+            padding: 14px 18px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .summary-header h3 { color: #333; font-size: 1.1rem; }
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .summary-table th, .summary-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f3f3f3;
+            text-align: right;
+            font-size: 0.92rem;
+        }
+        .summary-table th { background: #fafafa; color: #555; }
+        .summary-table td.name, .summary-table th.name,
+        .summary-table td.sku, .summary-table th.sku { text-align: left; }
+        .summary-empty { padding: 16px 18px; color: #777; }
+        .summary-table tr.total { background: #fffbe6; font-weight: 600; }
+
         @media (max-width: 768px) {
             .container {
                 padding: 20px;
@@ -322,6 +355,16 @@
             </div>
             
             <div class="result" id="result"></div>
+
+            <div id="summary" class="summary-container">
+                <div class="summary-header">
+                    <h3>📊 关键指标（按订单量降序）</h3>
+                    <small id="summary-count"></small>
+                </div>
+                <div id="summary-body">
+                    <div class="summary-empty">暂无数据</div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -461,12 +504,16 @@
             const progress = document.getElementById('progress');
             const progressBar = document.getElementById('progress-bar');
             const result = document.getElementById('result');
+            const summary = document.getElementById('summary');
+            const summaryBody = document.getElementById('summary-body');
+            const summaryCount = document.getElementById('summary-count');
 
             // 禁用按钮并显示进度条
             processBtn.disabled = true;
             processBtn.textContent = '⏳ 处理中...';
             progress.style.display = 'block';
             result.style.display = 'none';
+            summary.style.display = 'none';
 
             try {
                 // 准备FormData
@@ -519,6 +566,29 @@
                         <p>${moduleName}财务分析报告已生成</p>
                         <a href="${url}" download="${downloadName}" class="download-btn">📥 下载结果文件</a>
                     `;
+
+                    // 请求概要指标(JSON)并渲染
+                    const formData2 = new FormData();
+                    formData2.append('analysis_type', selectedModule);
+                    fileStorage.orders.forEach((file) => formData2.append('orders', file));
+                    fileStorage.settlements.forEach((file) => formData2.append('settlements', file));
+                    formData2.append('consumption', fileStorage.consumption);
+
+                    try {
+                        const res2 = await fetch('/process_summary', { method: 'POST', body: formData2 });
+                        if (res2.ok) {
+                            const data = await res2.json();
+                            renderSummaryTable(data.summary);
+                            summaryCount.textContent = `${data.count} 条记录`;
+                            summary.style.display = 'block';
+                        } else {
+                            summaryBody.innerHTML = '<div class="summary-empty">获取概要指标失败</div>';
+                            summary.style.display = 'block';
+                        }
+                    } catch (e) {
+                        summaryBody.innerHTML = '<div class="summary-empty">获取概要指标失败</div>';
+                        summary.style.display = 'block';
+                    }
                 } else {
                     const errorData = await response.json();
                     throw new Error(errorData.error || '处理失败');
@@ -538,6 +608,87 @@
                 result.style.display = 'block';
                 updateProcessButton();
             }
+        }
+
+        function renderSummaryTable(rows) {
+            const container = document.getElementById('summary-body');
+            if (!rows || rows.length === 0) {
+                container.innerHTML = '<div class="summary-empty">暂无数据</div>';
+                return;
+            }
+
+            // 前端保险再按订单量降序
+            rows = [...rows].sort((a, b) => (b['订单量'] || 0) - (a['订单量'] || 0));
+
+            const formatPercent = (v) => {
+                const n = Number(v);
+                if (!isFinite(n)) return '-';
+                return (n * 100).toFixed(2) + '%';
+            };
+            const formatMoney = (v) => {
+                const n = Number(v);
+                if (!isFinite(n)) return '-';
+                return '¥' + n.toFixed(2);
+            };
+
+            let html = '<table class="summary-table">';
+            html += '<thead><tr>' +
+                '<th class="name">产品名</th>' +
+                '<th class="sku">SKU</th>' +
+                '<th>订单量</th>' +
+                '<th>签收率</th>' +
+                '<th>人民币利润</th>' +
+                '<th>每单利润</th>' +
+                '<th>毛利润率</th>' +
+            '</tr></thead><tbody>';
+
+            rows.forEach(r => {
+                html += '<tr>' +
+                    `<td class="name">${escapeHtml(r['产品名'] ?? '')}</td>` +
+                    `<td class="sku">${escapeHtml(r['sku'] ?? '')}</td>` +
+                    `<td>${Number(r['订单量'] ?? 0)}</td>` +
+                    `<td>${formatPercent(r['签收率'])}</td>` +
+                    `<td>${formatMoney(r['人民币利润'])}</td>` +
+                    `<td>${formatMoney(r['每单利润'])}</td>` +
+                    `<td>${formatPercent(r['毛利润率'])}</td>` +
+                '</tr>';
+            });
+            // 计算总计
+            const sumBy = (key) => rows.reduce((acc, r) => acc + (Number(r[key]) || 0), 0);
+            const totalOrders = sumBy('订单量');
+            const hasSigned = rows.some(r => '签收订单数' in r);
+            const totalSigned = hasSigned ? sumBy('签收订单数') : null;
+            const totalRmbProfit = sumBy('人民币利润');
+            const hasGrossParts = rows.some(r => '毛利率分子' in r) && rows.some(r => '毛利率分母' in r);
+            const totalGrossNum = hasGrossParts ? sumBy('毛利率分子') : null;
+            const totalGrossDen = hasGrossParts ? sumBy('毛利率分母') : null;
+
+            const totalSignRate = (totalSigned !== null && totalOrders > 0) ? (totalSigned / totalOrders) : null;
+            const totalPerOrderProfit = (totalSigned && totalSigned > 0) ? (totalRmbProfit / totalSigned) : null;
+            const totalGrossMargin = (totalGrossNum !== null && totalGrossDen && totalGrossDen > 0)
+                ? (totalGrossNum / totalGrossDen) : null;
+
+            html += `<tr class="total">` +
+                `<td class="name">总计</td>` +
+                `<td class="sku">-</td>` +
+                `<td>${totalOrders}</td>` +
+                `<td>${totalSignRate === null ? '-' : formatPercent(totalSignRate)}</td>` +
+                `<td>${formatMoney(totalRmbProfit)}</td>` +
+                `<td>${totalPerOrderProfit === null ? '-' : formatMoney(totalPerOrderProfit)}</td>` +
+                `<td>${totalGrossMargin === null ? '-' : formatPercent(totalGrossMargin)}</td>` +
+            `</tr>`;
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
     </script>
 </body>

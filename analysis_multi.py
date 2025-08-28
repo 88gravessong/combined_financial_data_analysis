@@ -12,7 +12,7 @@ analysis_multi.py
 
 import pandas as pd
 from pathlib import Path
-from typing import List, Union
+from typing import List, Union, Optional, Dict
 import re
 
 # 汇率设置
@@ -333,6 +333,246 @@ def process_financial_data(order_files: List[Union[str, Path]],
     print(f"📊 总计订单: {len(order)} 行, SKU数量: {len(sku)} 个")
     
     return output_path
+
+
+def _detect_product_name_column(df: pd.DataFrame) -> Optional[str]:
+    """
+    在订单或成本表中尝试识别产品名称列名。
+    优先匹配常见的中文/英文列名。
+    """
+    if df is None or df.empty:
+        return None
+
+    candidates_exact = [
+        "产品名称", "商品名称", "产品名", "品名",
+        "Product Name", "Item Name", "Title", "Name"
+    ]
+    for col in df.columns:
+        if col in candidates_exact:
+            return col
+
+    # 次优先：包含“名称/商品/产品”的列
+    candidates_contains = ["名称", "商品", "产品", "name", "title"]
+    lower_cols = {c.lower(): c for c in df.columns}
+    for key in candidates_contains:
+        for lc, orig in lower_cols.items():
+            if key in lc:
+                return orig
+    return None
+
+
+def _build_sku_name_map(order_df: pd.DataFrame, sku_col: str, cons_df: Optional[pd.DataFrame] = None) -> Dict[str, str]:
+    """
+    从订单表和可选的消耗表中，构建 sku -> 产品名 的映射。
+    优先使用订单表中出现频率最高的产品名；若无则尝试消耗表。
+    """
+    name_map: Dict[str, str] = {}
+
+    # 1) 从订单表提取
+    name_col = _detect_product_name_column(order_df)
+    if name_col:
+        tmp = (
+            order_df[[sku_col, name_col]]
+            .dropna()
+            .astype({sku_col: str})
+        )
+        if not tmp.empty:
+            mode_name = (
+                tmp.groupby(sku_col)[name_col]
+                   .agg(lambda s: s.value_counts().index[0])
+            )
+            name_map.update(mode_name.to_dict())
+
+    # 2) 从消耗表补充
+    if cons_df is not None and sku_col in cons_df.columns:
+        cons_name_col = _detect_product_name_column(cons_df)
+        if cons_name_col:
+            ctmp = cons_df[[sku_col, cons_name_col]].dropna().astype({sku_col: str})
+            for k, v in ctmp.values:
+                name_map.setdefault(str(k), str(v))
+
+    return name_map
+
+
+def compute_indonesia_summary(order_files: List[Union[str, Path]],
+                              settlement_files: List[Union[str, Path]],
+                              consumption_file: Union[str, Path]) -> pd.DataFrame:
+    """
+    计算印尼模块的SKU级摘要，用于前端渲染。
+    返回列：产品名, sku, 订单量, 签收率, 人民币利润, 每单利润, 毛利润率
+    """
+    # 读取与合并（沿用主流程逻辑）
+    order = merge_order_files(order_files)
+    settle = merge_settlement_files(settlement_files)
+    cons = pd.read_excel(consumption_file, dtype=str)
+
+    if "Total settlement amount" not in settle.columns:
+        settlement_cols = [c for c in settle.columns if "settlement" in c.lower()]
+        if settlement_cols:
+            settle = settle.rename(columns={settlement_cols[0]: "Total settlement amount"})
+        else:
+            raise ValueError("结算表中找不到结算金额列")
+    settle["Total settlement amount"] = pd.to_numeric(settle["Total settlement amount"], errors="coerce")
+
+    # 排除重复订单
+    settle = settle.drop_duplicates("order_id", keep=False)
+
+    # 合并
+    order = order.merge(settle[["order_id", "Total settlement amount"]], on="order_id", how="left")
+
+    # 识别列
+    qty_col = None
+    sku_col = None
+    ship_col = None
+    status_col = None
+    for col in order.columns:
+        if "数量" in col and qty_col is None:
+            qty_col = col
+        elif "sku" in col.lower() and sku_col is None:
+            sku_col = col
+        elif "是否出库" in col and ship_col is None:
+            ship_col = col
+        elif "平台状态" in col and status_col is None:
+            status_col = col
+    if not all([qty_col, sku_col, ship_col, status_col]):
+        missing = []
+        if not qty_col: missing.append("数量列")
+        if not sku_col: missing.append("SKU列")
+        if not ship_col: missing.append("是否出库列")
+        if not status_col: missing.append("平台状态列")
+        raise ValueError(f"订单表中缺少必要列: {', '.join(missing)}")
+
+    order[qty_col] = pd.to_numeric(order[qty_col], errors="coerce").fillna(0).astype(int)
+
+    # 统一SKU值格式
+    order[sku_col] = order[sku_col].astype(str).str.strip()
+
+    # 组合SKU预处理
+    order = preprocess_combo_sku(order, sku_col, qty_col)
+
+    order["_shipped"] = order[ship_col].str.strip().str.lower()
+    order["_status"] = order[status_col].str.strip().str.lower()
+
+    lines = order.groupby("order_id")["order_id"].transform("size")
+    order["settlement_per_line"] = order["Total settlement amount"] / lines
+
+    # 运营费用
+    tot_qty = order.groupby("order_id")[qty_col].transform("sum")
+    order["order_fee_rmb"] = [
+        2.0 if (s == "yes" and q == 1) else 2.5 if (s == "yes" and q > 1) else 0.0
+        for s, q in zip(order["_shipped"], tot_qty)
+    ]
+    order["operation_fee_per_line_rmb"] = order.groupby("order_id")["order_fee_rmb"].transform("max") / lines
+
+    pair_df = order[[sku_col, "order_id", "_shipped", "_status"]].drop_duplicates([sku_col, "order_id"])
+    metrics = {
+        "订单数": pair_df.groupby(sku_col)["order_id"].nunique(),
+        "签收订单数": pair_df[pair_df["_status"].isin(["delivered", "completed"])].groupby(sku_col)["order_id"].nunique(),
+    }
+
+    shipped_order = order[order["_shipped"] == "yes"]
+    delivered_order = order[order["_status"].isin(["delivered", "completed"])]
+
+    base = order.groupby(sku_col).agg(
+        sku_total_settlement=("settlement_per_line", "sum"),
+        sku_total_operation_fee=("operation_fee_per_line_rmb", "sum"),
+    )
+    shipped_qty = shipped_order.groupby(sku_col)[qty_col].sum()
+    base = base.join(shipped_qty.rename("出库数量"), how="left")
+    delivered_amount = delivered_order.groupby(sku_col)["settlement_per_line"].sum()
+    base = base.join(delivered_amount.rename("签收金额"), how="left")
+
+    sku = base
+    for k, v in metrics.items():
+        sku = sku.join(v.rename(k), how="left")
+    sku = sku.fillna(0)
+
+    sku["签收率"] = sku["签收订单数"] / sku["订单数"].replace(0, pd.NA)
+
+    # 消耗表处理（沿用主流程）
+    # 规范消耗表列名，去除空白
+    cons.columns = cons.columns.str.strip()
+    if sku_col not in cons.columns:
+        cons = cons.rename(columns={cons.columns[0]: sku_col})
+    cons[sku_col] = cons[sku_col].astype(str).str.strip()
+    # 仅将数值类列转为数值，避免将“产品”等文本列转为NaN
+    numeric_cols = ["印尼盾ads消耗", "印尼盾gmvmax消耗", "印尼盾单sku成本"]
+    for col in numeric_cols:
+        if col in cons.columns:
+            cons[col] = pd.to_numeric(cons[col], errors="coerce")
+    for col in numeric_cols:
+        if col not in cons.columns:
+            cons[col] = 0.0
+    cons["美金ads消耗"] = cons["印尼盾ads消耗"] / IDR_PER_USD
+    cons["美金gmvmax消耗"] = cons["印尼盾gmvmax消耗"] / IDR_PER_USD
+    cons["人民币单sku成本"] = cons["印尼盾单sku成本"] / IDR_PER_RMB
+    keep = [
+        sku_col,
+        "印尼盾ads消耗",
+        "印尼盾gmvmax消耗",
+        "美金ads消耗",
+        "美金gmvmax消耗",
+        "印尼盾单sku成本",
+        "人民币单sku成本",
+    ]
+    # 如果消费表包含产品名列"产品"，一并带上
+    if "产品" in cons.columns:
+        keep.append("产品")
+    sku = sku.merge(cons[keep], on=sku_col, how="left")
+    # 仅对数值列填充0，避免把“产品”填充为0
+    fill_zero_cols = [c for c in [
+        "印尼盾ads消耗","印尼盾gmvmax消耗","美金ads消耗","美金gmvmax消耗","印尼盾单sku成本","人民币单sku成本"
+    ] if c in sku.columns]
+    sku[fill_zero_cols] = sku[fill_zero_cols].fillna(0)
+
+    # 财务指标
+    sku["印尼盾操作费"] = sku["sku_total_operation_fee"] * IDR_PER_RMB
+    sku["印尼盾消耗"] = sku["印尼盾ads消耗"] + sku["印尼盾gmvmax消耗"]
+    sku["印尼盾产品成本"] = sku["印尼盾单sku成本"] * sku["出库数量"]
+    sku["利润"] = sku["sku_total_settlement"] - sku["印尼盾操作费"] - sku["印尼盾产品成本"] - sku["印尼盾消耗"]
+    sku["人民币利润"] = sku["利润"] / IDR_PER_RMB
+    sku["签收毛利率"] = sku["利润"] / sku["签收金额"].replace(0, pd.NA)
+    sku["每单利润"] = sku["人民币利润"] / sku["签收订单数"].replace(0, pd.NA)
+
+    # 构建产品名
+    sku = sku.reset_index().rename(columns={sku_col: "sku"})
+    # 优先从消耗表的“产品”列获取产品名
+    if "产品" in sku.columns:
+        sku["产品名"] = sku["产品"].astype(str)
+    else:
+        # 兜底：为空字符串
+        sku["产品名"] = ""
+
+    # 选择并重命名列（同时保留汇总需要的隐含字段）
+    out = sku[[
+        "产品名",
+        "sku",
+        "订单数",
+        "签收订单数",
+        "签收金额",
+        "利润",
+        "签收率",
+        "人民币利润",
+        "每单利润",
+        "签收毛利率",
+    ]].rename(columns={
+        "订单数": "订单量",
+        "签收毛利率": "毛利润率",
+    })
+    # 为前端汇总提供统一字段名
+    out["毛利率分子"] = out["利润"]  # 印尼盾
+    out["毛利率分母"] = out["签收金额"]  # 印尼盾
+
+    # 处理缺失与排序
+    for col in ["签收率", "毛利润率", "每单利润", "人民币利润"]:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+    out = out.fillna({
+        "签收率": 0, "毛利润率": 0, "每单利润": 0, "人民币利润": 0,
+        "签收订单数": 0, "签收金额": 0, "利润": 0, "毛利率分子": 0, "毛利率分母": 0
+    })
+    out = out.sort_values(by="订单量", ascending=False, kind="mergesort").reset_index(drop=True)
+
+    return out
 
 if __name__ == "__main__":
     # 测试用例
