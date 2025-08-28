@@ -1,0 +1,7 @@
+services:
+  financial-analysis:
+    build: .
+    container_name: financial-analysis-app
+    ports:
+      - "1001:8080"
+    restart: unless-stopped
