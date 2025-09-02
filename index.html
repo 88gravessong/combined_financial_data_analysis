@@ -316,18 +316,17 @@
             
         </div>
         
-        <!-- 参数设置 -->
-        <div id="param-panel" style="margin: 10px 0 24px; background:#fff; border:1px solid #eee; border-radius:12px; padding:16px;">
+        <!-- 参数设置（仅跨境模块显示） -->
+        <div id="param-panel" style="margin: 10px 0 24px; background:#fff; border:1px solid #eee; border-radius:12px; padding:16px; display:none;">
             <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
                 <div>
                     <label for="country" style="display:block; color:#555; font-size:12px; margin-bottom:6px;">国家</label>
                     <select id="country" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; min-width:220px; background:#fff; appearance:auto;">
-                        <option value="Indonesia">Indonesia</option>
-                        <option value="Malaysia">Malaysia</option>
-                        <option value="Vietnam">Vietnam</option>
-                        <option value="Thailand">Thailand</option>
-                        <option value="Philippines">Philippines</option>
-                        <option value="Singapore">Singapore</option>
+                        <option value="马来西亚">马来西亚</option>
+                        <option value="越南">越南</option>
+                        <option value="泰国">泰国</option>
+                        <option value="菲律宾">菲律宾</option>
+                        <option value="新加坡">新加坡</option>
                     </select>
                 </div>
                 <div>
@@ -336,7 +335,7 @@
                 </div>
                 
             </div>
-            <small style="display:block; color:#888; margin-top:8px;">提示：若不填写，将使用各模块默认汇率（印尼: 2300；马来: 0.6）。</small>
+            <small style="display:block; color:#888; margin-top:8px;">若不填写，将使用各模块默认汇率。</small>
         </div>
         
         <div class="upload-section">
@@ -398,14 +397,13 @@
             consumption: null
         };
 
-        // 预设国家与本币/人民币汇率（可在页面覆盖）
+        // 预设国家与本币/人民币汇率（可在页面覆盖；以下为你提供的最新值）
         const PRESET_RATES = {
-            Indonesia:   { ccy: 'IDR', rmb: 2300 },
-            Malaysia:    { ccy: 'MYR', rmb: 0.6 },
-            Vietnam:     { ccy: 'VND', rmb: 3500 },
-            Thailand:    { ccy: 'THB', rmb: 5.0 },
-            Philippines: { ccy: 'PHP', rmb: 8.0 },
-            Singapore:   { ccy: 'SGD', rmb: 0.19 },
+            '马来西亚': { ccy: 'MYR', rmb: 0.59 },
+            '越南':     { ccy: 'VND', rmb: 3690 },
+            '泰国':     { ccy: 'THB', rmb: 4.53 },
+            '菲律宾':   { ccy: 'PHP', rmb: 8.03 },
+            '新加坡':   { ccy: 'SGD', rmb: 0.18 },
         };
 
         // 初始化拖拽功能
@@ -426,9 +424,9 @@
             radio.addEventListener('change', handleModuleChange);
         });
 
-        // 国家选择变更 → 自动填充预设汇率（不覆盖已填写的非空值）
+        // 国家选择变更 → 自动覆盖为该国默认汇率
         document.getElementById('country').addEventListener('change', () => {
-            applyPresetRates();
+            applyPresetRates(true);
         });
 
         function handleModuleChange(e) {
@@ -437,16 +435,27 @@
                 btn.classList.remove('active');
             });
             e.target.closest('.module-btn').classList.add('active');
-            applyPresetRates();
+            // 跨境：显示参数面板并套用预设；印尼：隐藏参数面板
+            const module = e.target.value;
+            const panel = document.getElementById('param-panel');
+            if (module === 'malaysia') {
+                panel.style.display = '';
+                // 默认选中马来西亚
+                const countrySel = document.getElementById('country');
+                if (!countrySel.value) countrySel.value = '马来西亚';
+                applyPresetRates(true);
+            } else {
+                panel.style.display = 'none';
+            }
         }
 
-        function applyPresetRates() {
+        function applyPresetRates(force = false) {
             const country = document.getElementById('country').value;
             const rateRmb = document.getElementById('rate-local-per-rmb');
 
             const preset = PRESET_RATES[country];
             if (preset) {
-                if (!rateRmb.value) rateRmb.value = String(preset.rmb ?? '');
+                if (force || !rateRmb.value) rateRmb.value = String(preset.rmb ?? '');
             }
         }
 
