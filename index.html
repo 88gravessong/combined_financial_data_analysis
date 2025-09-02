@@ -321,7 +321,14 @@
             <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
                 <div>
                     <label for="country" style="display:block; color:#555; font-size:12px; margin-bottom:6px;">国家</label>
-                    <input id="country" type="text" value="Indonesia" placeholder="如：Indonesia/Malaysia/Thailand" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; min-width:220px;" />
+                    <select id="country" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; min-width:220px; background:#fff; appearance:auto;">
+                        <option value="Indonesia">Indonesia</option>
+                        <option value="Malaysia">Malaysia</option>
+                        <option value="Vietnam">Vietnam</option>
+                        <option value="Thailand">Thailand</option>
+                        <option value="Philippines">Philippines</option>
+                        <option value="Singapore">Singapore</option>
+                    </select>
                 </div>
                 <div>
                     <label for="rate-local-per-rmb" style="display:block; color:#555; font-size:12px; margin-bottom:6px;">本币/人民币</label>
@@ -394,6 +401,17 @@
             consumption: null
         };
 
+        // 预设国家与本币/人民币（以及印尼的本币/美元）汇率
+        // 注：汇率可在页面内覆盖，以下仅为便捷预设。
+        const PRESET_RATES = {
+            Indonesia:   { ccy: 'IDR', rmb: 2300, usd: 16000 },
+            Malaysia:    { ccy: 'MYR', rmb: 0.6 },
+            Vietnam:     { ccy: 'VND', rmb: 3500 },
+            Thailand:    { ccy: 'THB', rmb: 5.0 },
+            Philippines: { ccy: 'PHP', rmb: 8.0 },
+            Singapore:   { ccy: 'SGD', rmb: 0.19 },
+        };
+
         // 初始化拖拽功能
         document.querySelectorAll('.upload-box').forEach(box => {
             box.addEventListener('dragover', handleDragOver);
@@ -412,6 +430,11 @@
             radio.addEventListener('change', handleModuleChange);
         });
 
+        // 国家选择变更 → 自动填充预设汇率（不覆盖已填写的非空值）
+        document.getElementById('country').addEventListener('change', () => {
+            applyPresetRates();
+        });
+
         function handleModuleChange(e) {
             // 更新按钮样式
             document.querySelectorAll('.module-btn').forEach(btn => {
@@ -419,28 +442,33 @@
             });
             e.target.closest('.module-btn').classList.add('active');
 
-            // 根据模块设置国家默认与汇率输入显隐/默认值
+            // 根据模块控制美元输入显隐，并应用预设
             const module = e.target.value;
-            const countryInput = document.getElementById('country');
-            const rateRmb = document.getElementById('rate-local-per-rmb');
             const rateUsdWrap = document.getElementById('usd-rate-wrap');
+            if (module === 'indonesia') {
+                rateUsdWrap.style.display = '';
+            } else {
+                rateUsdWrap.style.display = 'none';
+                document.getElementById('rate-local-per-usd').value = '';
+            }
+            applyPresetRates();
+        }
+
+        function applyPresetRates() {
+            const country = document.getElementById('country').value;
+            const selectedModule = document.querySelector('input[name="analysis_type"]:checked').value;
+            const rateRmb = document.getElementById('rate-local-per-rmb');
             const rateUsd = document.getElementById('rate-local-per-usd');
 
-            if (module === 'indonesia') {
-                if (!countryInput.value || countryInput.value.toLowerCase() === 'malaysia') {
-                    countryInput.value = 'Indonesia';
+            const preset = PRESET_RATES[country];
+            if (preset) {
+                if (!rateRmb.value) rateRmb.value = String(preset.rmb ?? '');
+                // 仅印尼模块使用美元预设
+                if (selectedModule === 'indonesia') {
+                    if (!rateUsd.value && country === 'Indonesia') {
+                        rateUsd.value = String(preset.usd ?? '');
+                    }
                 }
-                rateUsdWrap.style.display = '';
-                // 仅在为空时填默认，避免覆盖用户输入
-                if (!rateRmb.value) rateRmb.value = '2300';
-                if (!rateUsd.value) rateUsd.value = '16000';
-            } else {
-                if (!countryInput.value || countryInput.value.toLowerCase() === 'indonesia') {
-                    countryInput.value = 'Malaysia';
-                }
-                rateUsdWrap.style.display = 'none';
-                rateUsd.value = '';
-                if (!rateRmb.value || Number(rateRmb.value) === 2300) rateRmb.value = '0.6';
             }
         }
 
