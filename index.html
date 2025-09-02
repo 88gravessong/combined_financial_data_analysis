@@ -44,17 +44,26 @@
             gap: 12px;
             margin-bottom: 24px;
             flex-wrap: wrap;
+            transition: justify-content 0.3s ease;
+        }
+
+        .module-selector.expanded {
+            justify-content: flex-start;
         }
 
         .module-btn {
             background: #f8f9fa;
             border: 2px solid #e9ecef;
             border-radius: 25px;
-            padding: 8px 20px;
+            padding: 0 20px;
+            height: 44px;
             cursor: pointer;
             transition: all 0.3s ease;
             font-size: 0.9rem;
             color: #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .module-btn:hover {
@@ -74,18 +83,30 @@
 
         /* 参数小胶囊，放在按钮右边，样式一致 */
         .param-chip {
-            display: none; /* 默认不显示，选中跨境模块后显示 */
+            display: flex;
             align-items: center;
             gap: 10px;
             background: #f8f9fa;
             border: 2px solid #e9ecef;
             border-radius: 25px;
-            padding: 6px 12px;
             color: #333;
-            transition: all 0.25s ease;
+            transition: all 0.3s ease;
             line-height: 1;
+            overflow: hidden;
+            opacity: 0;
+            max-width: 0;
+            padding: 0;
+            margin-left: 0;
+            height: 44px;
+            pointer-events: none;
         }
-        .param-chip.show { display: flex; }
+        .param-chip.show {
+            opacity: 1;
+            max-width: 1000px;
+            padding: 4px 12px;
+            margin-left: 12px;
+            pointer-events: auto;
+        }
         .param-chip:hover { border-color: #667eea; background: #f0f4ff; }
         .param-chip .field {
             display: flex;
@@ -474,9 +495,11 @@
             // 跨境：显示参数胶囊并套用预设；印尼：隐藏
             const module = e.target.value;
             const chip = document.getElementById('param-chip');
+            const selector = document.querySelector('.module-selector');
             if (module === 'malaysia') {
                 chip.classList.add('show');
                 chip.setAttribute('aria-hidden', 'false');
+                selector.classList.add('expanded');
                 // 默认选中马来西亚
                 const countrySel = document.getElementById('country');
                 if (!countrySel.value) countrySel.value = '马来西亚';
@@ -484,6 +507,7 @@
             } else {
                 chip.classList.remove('show');
                 chip.setAttribute('aria-hidden', 'true');
+                selector.classList.remove('expanded');
             }
         }
 
