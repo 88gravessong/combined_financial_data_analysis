@@ -621,8 +621,8 @@
                     const blob = await response.blob();
                     const url = window.URL.createObjectURL(blob);
                     
-                    const moduleName = selectedModule === 'malaysia' ? '跨境店' : '印尼';
-                    const downloadName = selectedModule === 'malaysia' ? '跨境店财务分析结果.xlsx' : '印尼财务分析结果.xlsx';
+                    const moduleName = selectedModule === 'malaysia' ? (country || '跨境店') : '印尼';
+                    const downloadName = selectedModule === 'malaysia' ? `${moduleName}财务分析结果.xlsx` : '印尼财务分析结果.xlsx';
                     
                     result.className = 'result success';
                     result.innerHTML = `

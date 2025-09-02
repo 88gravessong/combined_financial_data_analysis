@@ -106,7 +106,9 @@ def process_files():
                         output_dir=temp_path,
                         local_per_rmb=float(rate_local_per_rmb) if rate_local_per_rmb else None
                     )
-                    download_name = '跨境店财务分析结果.xlsx'
+                    # 以所选国家命名下载文件，缺省则用“跨境店”
+                    safe_country = (country or '跨境店').strip()
+                    download_name = f"{safe_country}财务分析结果.xlsx"
                 
                 else:  # indonesia (默认)
                     output_path = process_financial_data(
