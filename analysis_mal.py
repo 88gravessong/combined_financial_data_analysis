@@ -90,7 +90,8 @@ def merge_settlement_files_mal(settlement_files: List[Union[str, Path]]) -> pd.D
 def process_malaysia_financial_data(order_files: List[Union[str, Path]], 
                                   settlement_files: List[Union[str, Path]], 
                                   consumption_file: Union[str, Path],
-                                  output_dir: Union[str, Path] = ".") -> Path:
+                                  output_dir: Union[str, Path] = ".",
+                                  local_per_rmb: Optional[float] = None) -> Path:
     """
     处理马来跨境店财务数据分析
     
@@ -105,6 +106,9 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     """
     
     print("🚀 开始马来跨境店财务数据分析...")
+
+    # 允许外部传入汇率（本币/人民币），默认0.6（马币/人民币）
+    rate_local_per_rmb = float(local_per_rmb) if local_per_rmb else 0.6
     
     # -------- 1) 读取订单表（跳过第 2 行注释） --------
     order_df = merge_order_files_mal(order_files)
@@ -146,6 +150,22 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     op_fee_candidates = ['订单操作费', '订单操作费_RMB', '人民币订单操作费', '操作费']
     op_fee_col = next((c for c in op_fee_candidates if c in cost.columns), None)
     
+    # 若成本表缺少特定前缀列，尝试按后缀匹配并重命名到马来币前缀
+    def _find_col_by_suffix(df: pd.DataFrame, suffix: str) -> Optional[str]:
+        for col in df.columns:
+            if isinstance(col, str) and col.strip().endswith(suffix):
+                return col
+        return None
+
+    if '马来币ads消耗' not in cost.columns:
+        c = _find_col_by_suffix(cost, 'ads消耗')
+        if c:
+            cost = cost.rename(columns={c: '马来币ads消耗'})
+    if '马来币gmvmax消耗' not in cost.columns:
+        c = _find_col_by_suffix(cost, 'gmvmax消耗')
+        if c:
+            cost = cost.rename(columns={c: '马来币gmvmax消耗'})
+
     keep_cols = [sku_col, unit_col, '马来币ads消耗', '马来币gmvmax消耗'] + ([op_fee_col] if op_fee_col else [])
     # 如果成本表包含产品名列“产品”，保留以用于展示
     if '产品' in cost.columns:
@@ -194,10 +214,12 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
 
     # -------- 7) 利润相关指标 --------
     sku['sku产品成本']   = sku['出库sku数'] * sku['单sku马来币成本']
-    sku['马来币操作费'] = sku['总操作费'] * 0.6
+    # 将人民币操作费按“本币/人民币”汇率折算为本币
+    sku['马来币操作费'] = sku['总操作费'] * rate_local_per_rmb
     sku['利润']       = (sku['总结算金额'] - sku['马来币操作费'] - sku['sku产品成本']
                        - sku['马来币ads消耗'] - sku['马来币gmvmax消耗'])
-    sku['人民币利润']  = sku['利润'] / 0.6
+    # 按“本币/人民币”汇率折算回人民币
+    sku['人民币利润']  = sku['利润'] / rate_local_per_rmb
     sku['毛利率']     = np.where(sku['总结算金额'] != 0, sku['利润'] / sku['总结算金额'], 0)
     sku['每单利润']    = np.where(sku['签收订单数'] != 0, sku['人民币利润'] / sku['签收订单数'], 0)
     
@@ -231,12 +253,14 @@ def _detect_name_col_mal(df: pd.DataFrame) -> Optional[str]:
 
 def compute_malaysia_summary(order_files: List[Union[str, Path]],
                              settlement_files: List[Union[str, Path]],
-                             consumption_file: Union[str, Path]) -> pd.DataFrame:
+                             consumption_file: Union[str, Path],
+                             local_per_rmb: Optional[float] = None) -> pd.DataFrame:
     """
     计算马来模块的SKU级摘要，用于前端渲染。
     返回列：产品名, sku, 订单量, 签收率, 人民币利润, 每单利润, 毛利润率
     """
     # 读取订单
+    rate_local_per_rmb = float(local_per_rmb) if local_per_rmb else 0.6
     order_df = merge_order_files_mal(order_files)
     # 读取结算
     sett_df = merge_settlement_files_mal(settlement_files)
@@ -268,6 +292,20 @@ def compute_malaysia_summary(order_files: List[Union[str, Path]],
     unit_col = '单sku马来币成本' if '单sku马来币成本' in cost.columns else '马来币单sku成本'
     op_fee_candidates = ['订单操作费', '订单操作费_RMB', '人民币订单操作费', '操作费']
     op_fee_col = next((c for c in op_fee_candidates if c in cost.columns), None)
+    # 后缀匹配归一化ads/gmvmax列到马来币前缀
+    def _find_col_by_suffix(df: pd.DataFrame, suffix: str) -> Optional[str]:
+        for col in df.columns:
+            if isinstance(col, str) and col.strip().endswith(suffix):
+                return col
+        return None
+    if '马来币ads消耗' not in cost.columns:
+        c = _find_col_by_suffix(cost, 'ads消耗')
+        if c:
+            cost = cost.rename(columns={c: '马来币ads消耗'})
+    if '马来币gmvmax消耗' not in cost.columns:
+        c = _find_col_by_suffix(cost, 'gmvmax消耗')
+        if c:
+            cost = cost.rename(columns={c: '马来币gmvmax消耗'})
     keep_cols = [sku_col, unit_col, '马来币ads消耗', '马来币gmvmax消耗'] + ([op_fee_col] if op_fee_col else [])
     # 把产品列也带上用于展示
     if prod_col and prod_col not in keep_cols:
@@ -313,10 +351,10 @@ def compute_malaysia_summary(order_files: List[Union[str, Path]],
 
     # 利润
     sku['sku产品成本'] = sku['出库sku数'] * sku['单sku马来币成本']
-    sku['马来币操作费'] = sku['总操作费'] * 0.6
+    sku['马来币操作费'] = sku['总操作费'] * rate_local_per_rmb
     sku['利润'] = (sku['总结算金额'] - sku['马来币操作费'] - sku['sku产品成本']
                 - sku['马来币ads消耗'] - sku['马来币gmvmax消耗'])
-    sku['人民币利润'] = sku['利润'] / 0.6
+    sku['人民币利润'] = sku['利润'] / rate_local_per_rmb
     sku['毛利率'] = np.where(sku['总结算金额'] != 0, sku['利润'] / sku['总结算金额'], 0)
     sku['每单利润'] = np.where(sku['签收订单数'] != 0, sku['人民币利润'] / sku['签收订单数'], 0)
 
