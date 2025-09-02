@@ -16,7 +16,8 @@ from typing import List, Union, Optional, Dict
 import re
 
 # 默认汇率设置（可通过函数参数覆盖）
-IDR_PER_RMB, IDR_PER_USD = 2300, 16000
+# 仅保留印尼盾/人民币汇率，已移除美元相关
+IDR_PER_RMB = 2300
 
 def preprocess_combo_sku(df: pd.DataFrame, sku_col: str, qty_col: str) -> pd.DataFrame:
     """
@@ -136,8 +137,7 @@ def process_financial_data(order_files: List[Union[str, Path]],
                          settlement_files: List[Union[str, Path]], 
                          consumption_file: Union[str, Path],
                          output_dir: Union[str, Path] = ".",
-                         idr_per_rmb: Optional[float] = None,
-                         idr_per_usd: Optional[float] = None) -> Path:
+                         idr_per_rmb: Optional[float] = None) -> Path:
     """
     处理财务数据分析
     
@@ -155,7 +155,6 @@ def process_financial_data(order_files: List[Union[str, Path]],
 
     # 使用传入的汇率（如有），否则使用默认值
     local_idr_per_rmb = float(idr_per_rmb) if idr_per_rmb else IDR_PER_RMB
-    local_idr_per_usd = float(idr_per_usd) if idr_per_usd else IDR_PER_USD
     
     # -------- 读取和合并文件 --------
     order = merge_order_files(order_files)
@@ -320,13 +319,10 @@ def process_financial_data(order_files: List[Union[str, Path]],
             cons[col] = 0.0
 
     # 货币转换（按传入/默认汇率）
-    cons["美金ads消耗"] = cons["印尼盾ads消耗"] / local_idr_per_usd
-    cons["美金gmvmax消耗"] = cons["印尼盾gmvmax消耗"] / local_idr_per_usd
     cons["人民币单sku成本"] = cons["印尼盾单sku成本"] / local_idr_per_rmb
 
     # 合并消耗数据
-    keep = [sku_col,"印尼盾ads消耗","印尼盾gmvmax消耗","美金ads消耗",
-            "美金gmvmax消耗","印尼盾单sku成本","人民币单sku成本"]
+    keep = [sku_col, "印尼盾ads消耗", "印尼盾gmvmax消耗", "印尼盾单sku成本", "人民币单sku成本"]
     sku = sku.merge(cons[keep], on=sku_col, how="left").fillna(0)
 
     # -------- 财务指标计算 --------
@@ -430,12 +426,14 @@ def _build_sku_name_map(order_df: pd.DataFrame, sku_col: str, cons_df: Optional[
 def compute_indonesia_summary(order_files: List[Union[str, Path]],
                               settlement_files: List[Union[str, Path]],
                               consumption_file: Union[str, Path],
-                              idr_per_rmb: Optional[float] = None,
-                              idr_per_usd: Optional[float] = None) -> pd.DataFrame:
+                              idr_per_rmb: Optional[float] = None) -> pd.DataFrame:
     """
     计算印尼模块的SKU级摘要，用于前端渲染。
     返回列：产品名, sku, 订单量, 签收率, 人民币利润, 每单利润, 毛利润率
     """
+    # 使用传入的汇率（如有），否则使用默认值
+    local_idr_per_rmb = float(idr_per_rmb) if idr_per_rmb else IDR_PER_RMB
+
     # 读取与合并（沿用主流程逻辑）
     order = merge_order_files(order_files)
     settle = merge_settlement_files(settlement_files)
@@ -538,15 +536,11 @@ def compute_indonesia_summary(order_files: List[Union[str, Path]],
     for col in numeric_cols:
         if col not in cons.columns:
             cons[col] = 0.0
-    cons["美金ads消耗"] = cons["印尼盾ads消耗"] / local_idr_per_usd
-    cons["美金gmvmax消耗"] = cons["印尼盾gmvmax消耗"] / local_idr_per_usd
     cons["人民币单sku成本"] = cons["印尼盾单sku成本"] / local_idr_per_rmb
     keep = [
         sku_col,
         "印尼盾ads消耗",
         "印尼盾gmvmax消耗",
-        "美金ads消耗",
-        "美金gmvmax消耗",
         "印尼盾单sku成本",
         "人民币单sku成本",
     ]
@@ -556,7 +550,7 @@ def compute_indonesia_summary(order_files: List[Union[str, Path]],
     sku = sku.merge(cons[keep], on=sku_col, how="left")
     # 仅对数值列填充0，避免把“产品”填充为0
     fill_zero_cols = [c for c in [
-        "印尼盾ads消耗","印尼盾gmvmax消耗","美金ads消耗","美金gmvmax消耗","印尼盾单sku成本","人民币单sku成本"
+        "印尼盾ads消耗","印尼盾gmvmax消耗","印尼盾单sku成本","人民币单sku成本"
     ] if c in sku.columns]
     sku[fill_zero_cols] = sku[fill_zero_cols].fillna(0)
 
@@ -629,7 +623,4 @@ if __name__ == "__main__":
             order_files=test_order_files,
             settlement_files=test_settlement_files,
             consumption_file=test_consumption_file
-        ) 
-    # 使用传入的汇率（如有），否则使用默认值
-    local_idr_per_rmb = float(idr_per_rmb) if idr_per_rmb else IDR_PER_RMB
-    local_idr_per_usd = float(idr_per_usd) if idr_per_usd else IDR_PER_USD
+        )

@@ -334,12 +334,9 @@
                     <label for="rate-local-per-rmb" style="display:block; color:#555; font-size:12px; margin-bottom:6px;">本币/人民币</label>
                     <input id="rate-local-per-rmb" type="number" step="any" placeholder="印尼盾/人民币=2300；马币/人民币=0.6" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; min-width:220px;" />
                 </div>
-                <div id="usd-rate-wrap">
-                    <label for="rate-local-per-usd" style="display:block; color:#555; font-size:12px; margin-bottom:6px;">本币/美元（可选）</label>
-                    <input id="rate-local-per-usd" type="number" step="any" placeholder="印尼盾/美元=16000；无则留空" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; min-width:220px;" />
-                </div>
+                
             </div>
-            <small style="display:block; color:#888; margin-top:8px;">提示：若不填写，将使用各模块默认汇率（印尼: 2300/16000；马来: 0.6）。</small>
+            <small style="display:block; color:#888; margin-top:8px;">提示：若不填写，将使用各模块默认汇率（印尼: 2300；马来: 0.6）。</small>
         </div>
         
         <div class="upload-section">
@@ -401,10 +398,9 @@
             consumption: null
         };
 
-        // 预设国家与本币/人民币（以及印尼的本币/美元）汇率
-        // 注：汇率可在页面内覆盖，以下仅为便捷预设。
+        // 预设国家与本币/人民币汇率（可在页面覆盖）
         const PRESET_RATES = {
-            Indonesia:   { ccy: 'IDR', rmb: 2300, usd: 16000 },
+            Indonesia:   { ccy: 'IDR', rmb: 2300 },
             Malaysia:    { ccy: 'MYR', rmb: 0.6 },
             Vietnam:     { ccy: 'VND', rmb: 3500 },
             Thailand:    { ccy: 'THB', rmb: 5.0 },
@@ -441,34 +437,16 @@
                 btn.classList.remove('active');
             });
             e.target.closest('.module-btn').classList.add('active');
-
-            // 根据模块控制美元输入显隐，并应用预设
-            const module = e.target.value;
-            const rateUsdWrap = document.getElementById('usd-rate-wrap');
-            if (module === 'indonesia') {
-                rateUsdWrap.style.display = '';
-            } else {
-                rateUsdWrap.style.display = 'none';
-                document.getElementById('rate-local-per-usd').value = '';
-            }
             applyPresetRates();
         }
 
         function applyPresetRates() {
             const country = document.getElementById('country').value;
-            const selectedModule = document.querySelector('input[name="analysis_type"]:checked').value;
             const rateRmb = document.getElementById('rate-local-per-rmb');
-            const rateUsd = document.getElementById('rate-local-per-usd');
 
             const preset = PRESET_RATES[country];
             if (preset) {
                 if (!rateRmb.value) rateRmb.value = String(preset.rmb ?? '');
-                // 仅印尼模块使用美元预设
-                if (selectedModule === 'indonesia') {
-                    if (!rateUsd.value && country === 'Indonesia') {
-                        rateUsd.value = String(preset.usd ?? '');
-                    }
-                }
             }
         }
 
@@ -610,10 +588,8 @@
                 // 附加国家与汇率参数
                 const country = (document.getElementById('country').value || '').trim();
                 const rateLocalPerRmb = (document.getElementById('rate-local-per-rmb').value || '').trim();
-                const rateLocalPerUsd = (document.getElementById('rate-local-per-usd').value || '').trim();
                 if (country) formData.append('country', country);
                 if (rateLocalPerRmb) formData.append('rate_local_per_rmb', rateLocalPerRmb);
-                if (rateLocalPerUsd) formData.append('rate_local_per_usd', rateLocalPerUsd);
 
                 // 模拟进度更新
                 let progress_value = 0;
@@ -654,7 +630,6 @@
                     formData2.append('consumption', fileStorage.consumption);
                     if (country) formData2.append('country', country);
                     if (rateLocalPerRmb) formData2.append('rate_local_per_rmb', rateLocalPerRmb);
-                    if (rateLocalPerUsd) formData2.append('rate_local_per_usd', rateLocalPerUsd);
 
                     try {
                         const res2 = await fetch('/process_summary', { method: 'POST', body: formData2 });
