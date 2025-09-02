@@ -40,8 +40,10 @@
         .module-selector {
             display: flex;
             justify-content: center;
-            gap: 15px;
-            margin-bottom: 30px;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
         }
 
         .module-btn {
@@ -69,6 +71,40 @@
         .module-btn input[type="radio"] {
             display: none;
         }
+
+        /* 参数小胶囊，放在按钮右边，样式一致 */
+        .param-chip {
+            display: none; /* 默认不显示，选中跨境模块后显示 */
+            align-items: center;
+            gap: 10px;
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 25px;
+            padding: 6px 12px;
+            color: #333;
+            transition: all 0.25s ease;
+            line-height: 1;
+        }
+        .param-chip.show { display: flex; }
+        .param-chip:hover { border-color: #667eea; background: #f0f4ff; }
+        .param-chip .field {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #666;
+        }
+        .param-chip select,
+        .param-chip input[type="number"] {
+            height: 32px;
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #fff;
+            min-width: 140px;
+            font-size: 12px;
+        }
+        .param-chip .hint { color: #888; font-size: 12px; margin-left: 6px; }
 
         .upload-section {
             display: grid;
@@ -296,6 +332,10 @@
                 align-items: center;
                 gap: 10px;
             }
+
+            .param-chip { width: 100%; justify-content: center; flex-wrap: wrap; }
+            .param-chip select,
+            .param-chip input[type="number"] { min-width: 120px; }
         }
     </style>
 </head>
@@ -313,15 +353,11 @@
                 <input type="radio" name="analysis_type" value="malaysia">
                 跨境店财务分析
             </label>
-            
-        </div>
-        
-        <!-- 参数设置（仅跨境模块显示） -->
-        <div id="param-panel" style="margin: 10px 0 24px; background:#fff; border:1px solid #eee; border-radius:12px; padding:16px; display:none;">
-            <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
-                <div>
-                    <label for="country" style="display:block; color:#555; font-size:12px; margin-bottom:6px;">国家</label>
-                    <select id="country" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; min-width:220px; background:#fff; appearance:auto;">
+            <!-- 参数小胶囊（仅跨境店显示） -->
+            <div id="param-chip" class="param-chip" aria-hidden="true">
+                <div class="field">
+                    <span>国家</span>
+                    <select id="country">
                         <option value="马来西亚">马来西亚</option>
                         <option value="越南">越南</option>
                         <option value="泰国">泰国</option>
@@ -329,14 +365,14 @@
                         <option value="新加坡">新加坡</option>
                     </select>
                 </div>
-                <div>
-                    <label for="rate-local-per-rmb" style="display:block; color:#555; font-size:12px; margin-bottom:6px;">本币/人民币</label>
-                    <input id="rate-local-per-rmb" type="number" step="any" placeholder="印尼盾/人民币=2300；马币/人民币=0.6" style="padding:8px 10px; border:1px solid #ddd; border-radius:8px; min-width:220px;" />
+                <div class="field">
+                    <span>本币/人民币</span>
+                    <input id="rate-local-per-rmb" type="number" step="any" placeholder="例: 0.59" />
                 </div>
-                
+                <span class="hint">若不填使用默认汇率</span>
             </div>
-            <small style="display:block; color:#888; margin-top:8px;">若不填写，将使用各模块默认汇率。</small>
         </div>
+
         
         <div class="upload-section">
             <!-- 订单表上传区域 -->
@@ -435,17 +471,19 @@
                 btn.classList.remove('active');
             });
             e.target.closest('.module-btn').classList.add('active');
-            // 跨境：显示参数面板并套用预设；印尼：隐藏参数面板
+            // 跨境：显示参数胶囊并套用预设；印尼：隐藏
             const module = e.target.value;
-            const panel = document.getElementById('param-panel');
+            const chip = document.getElementById('param-chip');
             if (module === 'malaysia') {
-                panel.style.display = '';
+                chip.classList.add('show');
+                chip.setAttribute('aria-hidden', 'false');
                 // 默认选中马来西亚
                 const countrySel = document.getElementById('country');
                 if (!countrySel.value) countrySel.value = '马来西亚';
                 applyPresetRates(true);
             } else {
-                panel.style.display = 'none';
+                chip.classList.remove('show');
+                chip.setAttribute('aria-hidden', 'true');
             }
         }
 
