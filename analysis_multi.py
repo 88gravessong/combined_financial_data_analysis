@@ -19,6 +19,44 @@ import re
 # 仅保留印尼盾/人民币汇率，已移除美元相关
 IDR_PER_RMB = 2300
 
+# ---------------- 通用SKU解析/规格化工具 ----------------
+def _parse_sku_multiplier(raw_sku: str) -> tuple[str, int]:
+    """
+    解析 SKU，返回 (规范化基础SKU, 倍数)。
+    规则（大小写不敏感，统一转小写）：
+    - 支持后缀 "-N"、"*N"、"xN"、"×N" → 倍数 N
+    - 支持无分隔直接尾数，如 "xifashui2" → 倍数 2
+    - 将 "-1"、"*1"、"x1"、"×1"、"1" 统一视作单件，倍数=1
+    - 规范化基础SKU统一为去掉数量后缀（不带 -1/*1）的小写字符串
+    """
+    if raw_sku is None or (isinstance(raw_sku, float) and pd.isna(raw_sku)):
+        return ("", 1)
+
+    s = str(raw_sku).strip().lower().replace(" ", "")
+    if not s:
+        return ("", 1)
+
+    # 先匹配含显式分隔符的形式：-N, *N, xN, ×N
+    m = re.match(r"^(?P<base>.+?)[\-\*xX×](?P<num>\d+)$", s)
+    if m:
+        base = m.group("base").strip("-*")
+        num = int(m.group("num")) if m.group("num") else 1
+        return (base, max(num, 1))
+
+    # 再匹配无分隔直接尾数的形式（仅当主体不以数字结尾且主体包含字母或中文）
+    m2 = re.match(r"^(?P<base>[a-zA-Z\u4e00-\u9fa5_\-/]+?)(?P<num>\d+)$", s)
+    if m2:
+        base = m2.group("base")
+        num = int(m2.group("num")) if m2.group("num") else 1
+        return (base, max(num, 1))
+
+    # 处理以 -1/*1/x1/×1 结尾但正则未命中的边角情况
+    if s.endswith(("-1", "*1", "x1", "×1")):
+        return (s[:-2].rstrip("-*") or s, 1)
+
+    # 默认：无倍数信息，倍数=1；返回原样（小写去空格）
+    return (s, 1)
+
 def preprocess_combo_sku(df: pd.DataFrame, sku_col: str, qty_col: str) -> pd.DataFrame:
     """
     预处理组合SKU，将组合SKU转换为基础SKU并调整数量
@@ -33,39 +71,25 @@ def preprocess_combo_sku(df: pd.DataFrame, sku_col: str, qty_col: str) -> pd.Dat
     """
     df = df.copy()
     combo_count = 0
-    
-    # 组合SKU模式定义
-    # pattern: (正则表达式, 基础SKU提取函数, 倍数提取函数)
-    combo_patterns = [
-        # grease-2, grease-3 等模式
-        (r'^(.+)-(\d+)$', lambda m: f"{m.group(1)}-1", lambda m: int(m.group(2))),
-        # toothpaste*2, toothpaste*3 等模式  
-        (r'^(.+)\*(\d+)$', lambda m: f"{m.group(1)}*1", lambda m: int(m.group(2))),
-    ]
-    
+
     for idx, sku in enumerate(df[sku_col]):
-        if pd.isna(sku):
+        base_sku, mult = _parse_sku_multiplier(sku)
+        if not base_sku:
             continue
-            
-        sku_str = str(sku).strip()
+
         original_qty = df.loc[idx, qty_col]
-        
-        # 检查每个组合SKU模式
-        for pattern, base_sku_func, multiplier_func in combo_patterns:
-            match = re.match(pattern, sku_str)
-            if match:
-                multiplier = multiplier_func(match)
-                # 只处理倍数大于1的情况
-                if multiplier > 1:
-                    base_sku = base_sku_func(match)
-                    new_qty = original_qty * multiplier
-                    
-                    df.loc[idx, sku_col] = base_sku
-                    df.loc[idx, qty_col] = new_qty
-                    combo_count += 1
-                    
-                    print(f"🔄 组合SKU转换: {sku_str} -> {base_sku}, 数量: {original_qty} -> {new_qty}")
-                break
+        new_qty = original_qty * mult
+        # 将 SKU 规范化为基础SKU（不带数量后缀）
+        if mult != 1:
+            print(f"🔄 组合SKU转换: {sku} -> {base_sku} x{mult}, 数量: {original_qty} -> {new_qty}")
+            combo_count += 1
+        else:
+            # 对于如 xifashui / xifashui-1 / xifashui1 等统一为 xifashui
+            if str(sku).strip() != base_sku:
+                print(f"ℹ️ SKU规范化: {sku} -> {base_sku}")
+
+        df.loc[idx, sku_col] = base_sku
+        df.loc[idx, qty_col] = new_qty
     
     if combo_count > 0:
         print(f"✅ 完成组合SKU预处理: 转换了 {combo_count} 个组合SKU")
@@ -281,6 +305,10 @@ def process_financial_data(order_files: List[Union[str, Path]],
     if sku_col not in cons.columns:
         cons = cons.rename(columns={cons.columns[0]: sku_col})
     
+    # SKU 规格化（与订单侧一致），保证合并键统一
+    cons[sku_col] = cons[sku_col].astype(str).str.strip().str.lower()
+    cons[sku_col] = cons[sku_col].map(lambda s: _parse_sku_multiplier(s)[0])
+
     # 数值列转换
     for c in cons.columns:
         if c != sku_col: 
@@ -527,7 +555,9 @@ def compute_indonesia_summary(order_files: List[Union[str, Path]],
     cons.columns = cons.columns.str.strip()
     if sku_col not in cons.columns:
         cons = cons.rename(columns={cons.columns[0]: sku_col})
-    cons[sku_col] = cons[sku_col].astype(str).str.strip()
+    # 规格化 SKU：对成本表中的 SKU 也应用倍数解析，取基础SKU
+    cons[sku_col] = cons[sku_col].astype(str).str.strip().str.lower()
+    cons[sku_col] = cons[sku_col].map(lambda s: _parse_sku_multiplier(s)[0])
     # 仅将数值类列转为数值，避免将“产品”等文本列转为NaN
     numeric_cols = ["印尼盾ads消耗", "印尼盾gmvmax消耗", "印尼盾单sku成本"]
     for col in numeric_cols:

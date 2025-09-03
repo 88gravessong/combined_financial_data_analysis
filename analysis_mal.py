@@ -14,6 +14,7 @@ import numpy as np
 from openpyxl import load_workbook
 from pathlib import Path
 from typing import List, Union, Optional, Dict
+import re
 
 # === 文件路径 ===
 orders_path     = '马7-1.1至4.30订单.xlsx'          # 订单表（第 2 行为注释）
@@ -24,6 +25,27 @@ output_path     = '订单_汇总_成本利润.xlsx'
 # 出库订单固定操作费（人民币）
 # 注意：单位是人民币（RMB）。仅在成本表未提供“订单操作费”(人民币)时作为后备值使用。
 OP_FEE_FALLBACK = {'xifashui': 2.5, 'kingstick': 2.5}
+
+# ---------------- 通用SKU解析/规格化工具（与印尼模块一致） ----------------
+def _parse_sku_multiplier_mal(raw_sku: str) -> tuple[str, int]:
+    if raw_sku is None or (isinstance(raw_sku, float) and pd.isna(raw_sku)):
+        return ("", 1)
+    s = str(raw_sku).strip().lower().replace(" ", "")
+    if not s:
+        return ("", 1)
+    m = re.match(r"^(?P<base>.+?)[\-\*xX×](?P<num>\d+)$", s)
+    if m:
+        base = m.group("base").strip("-*")
+        num = int(m.group("num")) if m.group("num") else 1
+        return (base, max(num, 1))
+    m2 = re.match(r"^(?P<base>[a-zA-Z\u4e00-\u9fa5_\-/]+?)(?P<num>\d+)$", s)
+    if m2:
+        base = m2.group("base")
+        num = int(m2.group("num")) if m2.group("num") else 1
+        return (base, max(num, 1))
+    if s.endswith(("-1", "*1", "x1", "×1")):
+        return (s[:-2].rstrip("-*") or s, 1)
+    return (s, 1)
 
 def merge_order_files_mal(order_files: List[Union[str, Path]]) -> pd.DataFrame:
     """合并多个马来订单表文件（跳过第2行注释）"""
@@ -41,6 +63,16 @@ def merge_order_files_mal(order_files: List[Union[str, Path]]) -> pd.DataFrame:
             df.columns = df.columns.str.strip()
             df['Order ID'] = df['Order ID'].astype(str)
             df['Quantity'] = pd.to_numeric(df['Quantity'], errors='coerce').fillna(0).astype(int)
+            # 规格化 SKU 并放大量：Seller SKU 可能带 -2/*2/x2/2 尾数
+            if 'Seller SKU' in df.columns:
+                norm_skus = []
+                new_qty = []
+                for sku, q in zip(df['Seller SKU'], df['Quantity']):
+                    base, mult = _parse_sku_multiplier_mal(sku)
+                    norm_skus.append(base)
+                    new_qty.append(int(q) * int(mult))
+                df['Seller SKU'] = norm_skus
+                df['Quantity'] = new_qty
             
             all_orders.append(df)
             print(f"✅ 已读取马来订单文件: {Path(file_path).name} ({len(df)} 行)")
@@ -319,8 +351,9 @@ def compute_malaysia_summary(order_files: List[Union[str, Path]],
     for col in ['单sku马来币成本', '马来币ads消耗', '马来币gmvmax消耗', '订单操作费']:
         if col in cost_sub.columns:
             cost_sub[col] = pd.to_numeric(cost_sub[col], errors='coerce').fillna(0)
-    # 统一成本表SKU格式
-    cost_sub['Seller SKU'] = cost_sub['Seller SKU'].astype(str).str.strip()
+    # 统一成本表SKU格式并规格化到基础SKU
+    cost_sub['Seller SKU'] = cost_sub['Seller SKU'].astype(str).str.strip().str.lower()
+    cost_sub['Seller SKU'] = cost_sub['Seller SKU'].map(lambda s: _parse_sku_multiplier_mal(s)[0])
 
     # 操作费
     if '订单操作费' in cost_sub.columns:
