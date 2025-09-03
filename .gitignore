@@ -46,3 +46,12 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp 
+
+# Windows scripts
+install_and_start.bat
+quick_start.bat
+start.bat
+start_dev.bat
+
+# Local virtual environment
+.venv/
