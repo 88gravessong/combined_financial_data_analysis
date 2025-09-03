@@ -18,7 +18,11 @@
 ├── analysis_mal.py     # 马来西亚财务分析模块
 ├── index.html          # Web前端页面
 ├── requirements.txt    # 项目依赖
-├── start.sh           # 本地启动脚本
+├── start.sh           # Linux启动脚本
+├── start.bat          # Windows启动脚本
+├── quick_start.bat    # Windows快速启动脚本
+├── start_dev.bat      # Windows开发模式启动脚本
+├── install_and_start.bat # Windows一键安装启动脚本
 ├── docker-start.sh    # Docker一键启动脚本
 ├── Dockerfile         # Docker镜像构建文件
 ├── docker-compose.yml # Docker Compose配置
@@ -66,8 +70,28 @@ docker run -d -p 8080:8080 --name financial-app financial-analysis
 
 ### 方式二：本地部署
 
-#### 1. 安装依赖
+#### Windows系统
 
+**推荐方式：一键安装启动**
+```cmd
+install_and_start.bat
+```
+
+**其他启动方式：**
+```cmd
+# 完整启动（自动配置虚拟环境）
+start.bat
+
+# 快速启动（需要已配置环境）
+quick_start.bat
+
+# 开发模式启动
+start_dev.bat
+```
+
+#### Linux/Mac系统
+
+**1. 安装依赖**
 ```bash
 pip install -r requirements.txt
 ```
@@ -77,8 +101,7 @@ pip install -r requirements.txt
 pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host files.pythonhosted.org -r requirements.txt
 ```
 
-#### 2. 启动服务
-
+**2. 启动服务**
 ```bash
 python app.py
 # 或使用启动脚本
@@ -152,6 +175,42 @@ IDR_PER_RMB = 2300  # 印尼盾对人民币汇率（已移除美元相关）
 - 文件大小限制为100MB
 - 处理大量数据时请耐心等待
 
+## 📋 Windows启动脚本说明
+
+### 脚本类型
+
+1. **`install_and_start.bat`** - 一键安装启动脚本
+   - 自动检查Python环境
+   - 创建和配置虚拟环境
+   - 安装所有依赖
+   - 可选创建桌面快捷方式
+   - 自动打开浏览器
+   - 适合首次使用
+
+2. **`start.bat`** - 标准启动脚本
+   - 检查Python和必要文件
+   - 自动配置虚拟环境
+   - 安装依赖
+   - 启动应用
+   - 适合日常使用
+
+3. **`quick_start.bat`** - 快速启动脚本
+   - 跳过环境检查
+   - 直接启动应用
+   - 适合已配置好环境的用户
+
+4. **`start_dev.bat`** - 开发模式启动脚本
+   - 启用Flask调试模式
+   - 安装开发工具
+   - 显示详细环境信息
+   - 适合开发调试
+
+### 使用建议
+
+- **首次使用**: 运行 `install_and_start.bat`
+- **日常使用**: 运行 `start.bat` 或 `quick_start.bat`
+- **开发调试**: 运行 `start_dev.bat`
+
 ## 🐛 故障排除
 
 ### 常见问题
@@ -159,6 +218,30 @@ IDR_PER_RMB = 2300  # 印尼盾对人民币汇率（已移除美元相关）
 1. **SSL证书错误**: 使用 `--trusted-host` 参数安装依赖
 2. **列名识别失败**: 检查Excel文件中的列名是否包含关键字
 3. **内存不足**: 减少上传文件大小或增加系统内存
+
+### Windows特有问题
+
+1. **Python未找到**:
+   - 确保Python已正确安装并添加到PATH环境变量
+   - 从 [Python官网](https://www.python.org/downloads/) 下载最新版本
+   - 安装时勾选"Add Python to PATH"选项
+
+2. **脚本执行策略错误**:
+   - 右键点击批处理文件，选择"以管理员身份运行"
+   - 或在命令提示符中运行：`powershell Set-ExecutionPolicy RemoteSigned`
+
+3. **中文乱码问题**:
+   - 脚本已设置UTF-8编码（chcp 65001）
+   - 如仍有乱码，请确保系统区域设置正确
+
+4. **虚拟环境创建失败**:
+   - 检查磁盘空间是否充足
+   - 确保当前目录有写入权限
+   - 尝试手动创建：`python -m venv venv`
+
+5. **端口占用**:
+   - 检查8080端口是否被占用：`netstat -ano | findstr :8080`
+   - 结束占用进程或修改app.py中的端口设置
 
 ### Docker相关问题
 
