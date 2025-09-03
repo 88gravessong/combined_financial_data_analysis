@@ -9,6 +9,7 @@ import tempfile
 import traceback
 from pathlib import Path
 from flask import Flask, request, send_file, jsonify, render_template_string, redirect
+from io import BytesIO
 from werkzeug.utils import secure_filename
 import pandas as pd
 
@@ -120,9 +121,13 @@ def process_files():
                     )
                     download_name = '印尼财务分析结果.xlsx'
                 
-                # 返回结果文件
+                # 返回结果文件（以内存方式发送，避免 Windows 上临时文件被占用导致 WinError 32）
+                with open(output_path, 'rb') as f:
+                    data = f.read()
+                buffer = BytesIO(data)
+                buffer.seek(0)
                 return send_file(
-                    output_path,
+                    buffer,
                     as_attachment=True,
                     download_name=download_name,
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
