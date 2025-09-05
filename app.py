@@ -49,9 +49,11 @@ def process_files():
     try:
         # 获取分析模块类型及前端传入参数
         analysis_type = request.form.get('analysis_type', 'indonesia')
-        country = request.form.get('country')
-        # 前端传入：本币/人民币（可选）
-        rate_local_per_rmb = request.form.get('rate_local_per_rmb')
+        # 仅在跨境店模块读取国家与“本币/人民币”
+        country = request.form.get('country') if analysis_type == 'malaysia' else None
+        rate_local_per_rmb = request.form.get('rate_local_per_rmb') if analysis_type == 'malaysia' else None
+        # 印尼模块专用参数（若提供则覆盖默认印尼汇率）
+        idr_per_rmb = request.form.get('idr_per_rmb') if analysis_type == 'indonesia' else None
         
         # 检查是否有文件上传
         if 'orders' not in request.files or 'settlements' not in request.files or 'consumption' not in request.files:
@@ -117,7 +119,7 @@ def process_files():
                         settlement_files=settlement_paths,
                         consumption_file=consumption_path,
                         output_dir=temp_path,
-                        idr_per_rmb=float(rate_local_per_rmb) if rate_local_per_rmb else None
+                        idr_per_rmb=float(idr_per_rmb) if idr_per_rmb else None
                     )
                     download_name = '印尼财务分析结果.xlsx'
                 
@@ -149,8 +151,11 @@ def process_summary():
     """处理上传的文件，返回用于前端渲染的概要指标(JSON)"""
     try:
         analysis_type = request.form.get('analysis_type', 'indonesia')
-        country = request.form.get('country')
-        rate_local_per_rmb = request.form.get('rate_local_per_rmb')
+        # 仅在跨境店模块读取“本币/人民币”
+        country = request.form.get('country') if analysis_type == 'malaysia' else None
+        rate_local_per_rmb = request.form.get('rate_local_per_rmb') if analysis_type == 'malaysia' else None
+        # 印尼模块专用参数（若提供则覆盖默认印尼汇率）
+        idr_per_rmb = request.form.get('idr_per_rmb') if analysis_type == 'indonesia' else None
 
         if 'orders' not in request.files or 'settlements' not in request.files or 'consumption' not in request.files:
             return jsonify({'error': '缺少必要的文件。请确保上传了订单表、结算表和产品消耗表。'}), 400
@@ -198,7 +203,7 @@ def process_summary():
                         order_files=order_paths,
                         settlement_files=settlement_paths,
                         consumption_file=consumption_path,
-                        idr_per_rmb=float(rate_local_per_rmb) if rate_local_per_rmb else None,
+                        idr_per_rmb=float(idr_per_rmb) if idr_per_rmb else None,
                     )
 
                 # 转换为JSON

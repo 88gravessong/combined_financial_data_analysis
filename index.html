@@ -511,6 +511,11 @@
             } else {
                 chip.classList.remove('show');
                 chip.setAttribute('aria-hidden', 'true');
+                // 切换到印尼时，清空隐藏参数，避免残留值被提交
+                const countrySel = document.getElementById('country');
+                const rateInput = document.getElementById('rate-local-per-rmb');
+                if (rateInput) rateInput.value = '';
+                if (countrySel) countrySel.selectedIndex = 0;
             }
         }
 
@@ -659,11 +664,13 @@
                 // 添加消耗文件
                 formData.append('consumption', fileStorage.consumption);
 
-                // 附加国家与汇率参数
+                // 附加国家与汇率参数（仅跨境店模块）
                 const country = (document.getElementById('country').value || '').trim();
                 const rateLocalPerRmb = (document.getElementById('rate-local-per-rmb').value || '').trim();
-                if (country) formData.append('country', country);
-                if (rateLocalPerRmb) formData.append('rate_local_per_rmb', rateLocalPerRmb);
+                if (selectedModule === 'malaysia') {
+                    if (country) formData.append('country', country);
+                    if (rateLocalPerRmb) formData.append('rate_local_per_rmb', rateLocalPerRmb);
+                }
 
                 // 模拟进度更新
                 let progress_value = 0;
@@ -702,8 +709,10 @@
                     fileStorage.orders.forEach((file) => formData2.append('orders', file));
                     fileStorage.settlements.forEach((file) => formData2.append('settlements', file));
                     formData2.append('consumption', fileStorage.consumption);
-                    if (country) formData2.append('country', country);
-                    if (rateLocalPerRmb) formData2.append('rate_local_per_rmb', rateLocalPerRmb);
+                    if (selectedModule === 'malaysia') {
+                        if (country) formData2.append('country', country);
+                        if (rateLocalPerRmb) formData2.append('rate_local_per_rmb', rateLocalPerRmb);
+                    }
 
                     try {
                         const res2 = await fetch('/process_summary', { method: 'POST', body: formData2 });
