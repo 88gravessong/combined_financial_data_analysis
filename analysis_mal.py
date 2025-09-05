@@ -15,6 +15,8 @@ from openpyxl import load_workbook
 from pathlib import Path
 from typing import List, Union, Optional, Dict
 
+from sku_utils import preprocess_combo_sku, normalize_sku_column
+
 # === 文件路径 ===
 orders_path     = '马7-1.1至4.30订单.xlsx'          # 订单表（第 2 行为注释）
 settlement_path = '马七 下 income_20250530073840.xlsx'  # 结算表
@@ -112,6 +114,9 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     
     # -------- 1) 读取订单表（跳过第 2 行注释） --------
     order_df = merge_order_files_mal(order_files)
+    order_df['Seller SKU'] = order_df['Seller SKU'].astype(str).str.strip()
+    print("🔧 开始组合SKU预处理...")
+    order_df = preprocess_combo_sku(order_df, 'Seller SKU', 'Quantity')
     
     # -------- 2) 读取结算表并合并结算金额 --------
     sett_df = merge_settlement_files_mal(settlement_files)
@@ -176,6 +181,7 @@ def process_malaysia_financial_data(order_files: List[Union[str, Path]],
     for col in ['单sku马来币成本', '马来币ads消耗', '马来币gmvmax消耗', '订单操作费']:
         if col in cost_sub.columns:
             cost_sub[col] = pd.to_numeric(cost_sub[col], errors='coerce').fillna(0)
+    cost_sub = normalize_sku_column(cost_sub, 'Seller SKU')
     # 计算订单级操作费（未出库=0；优先用表格里的“订单操作费”）
     if '订单操作费' in cost_sub.columns:
         op_fee_map = cost_sub.set_index('Seller SKU')['订单操作费']
@@ -262,6 +268,8 @@ def compute_malaysia_summary(order_files: List[Union[str, Path]],
     # 读取订单
     rate_local_per_rmb = float(local_per_rmb) if local_per_rmb else 0.6
     order_df = merge_order_files_mal(order_files)
+    order_df['Seller SKU'] = order_df['Seller SKU'].astype(str).str.strip()
+    order_df = preprocess_combo_sku(order_df, 'Seller SKU', 'Quantity')
     # 读取结算
     sett_df = merge_settlement_files_mal(settlement_files)
     order_df = (order_df
@@ -321,6 +329,7 @@ def compute_malaysia_summary(order_files: List[Union[str, Path]],
             cost_sub[col] = pd.to_numeric(cost_sub[col], errors='coerce').fillna(0)
     # 统一成本表SKU格式
     cost_sub['Seller SKU'] = cost_sub['Seller SKU'].astype(str).str.strip()
+    cost_sub = normalize_sku_column(cost_sub, 'Seller SKU')
 
     # 操作费
     if '订单操作费' in cost_sub.columns:
