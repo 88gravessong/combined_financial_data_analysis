@@ -14,7 +14,7 @@ import pandas as pd
 from pathlib import Path
 from typing import List, Union, Optional, Dict
 
-from sku_utils import preprocess_combo_sku
+from sku_utils import preprocess_combo_sku, normalize_sku_column
 
 # 默认汇率设置（可通过函数参数覆盖）
 # 仅保留印尼盾/人民币汇率，已移除美元相关
@@ -231,6 +231,10 @@ def process_financial_data(order_files: List[Union[str, Path]],
     for c in cons.columns:
         if c != sku_col: 
             cons[c] = pd.to_numeric(cons[c], errors="coerce")
+
+    # 规范化消耗表中的 SKU，去除 -1/*2 等后缀，确保与订单侧一致
+    cons[sku_col] = cons[sku_col].astype(str).str.strip()
+    cons = normalize_sku_column(cons, sku_col)
 
     # 若未找到特定前缀列，尝试通过后缀模式匹配进行归一化
     def _find_col_by_suffix(df: pd.DataFrame, suffix: str) -> Optional[str]:
@@ -474,6 +478,8 @@ def compute_indonesia_summary(order_files: List[Union[str, Path]],
     if sku_col not in cons.columns:
         cons = cons.rename(columns={cons.columns[0]: sku_col})
     cons[sku_col] = cons[sku_col].astype(str).str.strip()
+    # 规范化消耗表中的 SKU，去除 -1/*2 等后缀，确保与订单侧一致
+    cons = normalize_sku_column(cons, sku_col)
     # 仅将数值类列转为数值，避免将“产品”等文本列转为NaN
     numeric_cols = ["印尼盾ads消耗", "印尼盾gmvmax消耗", "印尼盾单sku成本"]
     for col in numeric_cols:
