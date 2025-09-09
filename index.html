@@ -40,19 +40,30 @@
         .module-selector {
             display: flex;
             justify-content: center;
-            gap: 15px;
-            margin-bottom: 30px;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+            will-change: transform;
         }
 
         .module-btn {
             background: #f8f9fa;
             border: 2px solid #e9ecef;
             border-radius: 25px;
-            padding: 8px 20px;
+            padding: 0 20px;
+            height: 44px;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: background-color 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                        border-color 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                        color 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+            will-change: background-color, border-color, color;
             font-size: 0.9rem;
             color: #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .module-btn:hover {
@@ -69,6 +80,58 @@
         .module-btn input[type="radio"] {
             display: none;
         }
+
+        /* 参数小胶囊，放在按钮右边，样式一致 */
+        .param-chip {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f8f9fa;
+            border: 2px solid #e9ecef;
+            border-radius: 25px;
+            color: #333;
+            /* 更细化的过渡，展开更顺滑 */
+            transition:
+                max-width 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                opacity   0.20s ease-out,
+                padding   0.35s cubic-bezier(0.22, 1, 0.36, 1),
+                margin-left 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+            line-height: 1;
+            overflow: hidden;
+            opacity: 0;
+            max-width: 0;
+            padding: 0;
+            margin-left: 0;
+            height: 44px;
+            pointer-events: none;
+            will-change: max-width, opacity, padding, margin-left;
+        }
+        .param-chip.show {
+            opacity: 1;
+            max-width: 1000px;
+            padding: 4px 12px;
+            margin-left: 12px;
+            pointer-events: auto;
+        }
+        .param-chip:hover { border-color: #667eea; background: #f0f4ff; }
+        .param-chip .field {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #666;
+        }
+        .param-chip select,
+        .param-chip input[type="number"] {
+            height: 32px;
+            padding: 4px 8px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #fff;
+            min-width: 140px;
+            font-size: 12px;
+        }
+        .param-chip .hint { color: #888; font-size: 12px; margin-left: 6px; }
 
         .upload-section {
             display: grid;
@@ -296,6 +359,10 @@
                 align-items: center;
                 gap: 10px;
             }
+
+            .param-chip { width: 100%; justify-content: center; flex-wrap: wrap; }
+            .param-chip select,
+            .param-chip input[type="number"] { min-width: 120px; }
         }
     </style>
 </head>
@@ -311,10 +378,28 @@
             </label>
             <label class="module-btn">
                 <input type="radio" name="analysis_type" value="malaysia">
-                马来跨境店财务分析
+                跨境店财务分析
             </label>
-            
+            <!-- 参数小胶囊（仅跨境店显示） -->
+            <div id="param-chip" class="param-chip" aria-hidden="true">
+                <div class="field">
+                    <span>国家</span>
+                    <select id="country">
+                        <option value="马来西亚">马来西亚</option>
+                        <option value="越南">越南</option>
+                        <option value="泰国">泰国</option>
+                        <option value="菲律宾">菲律宾</option>
+                        <option value="新加坡">新加坡</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <span>本币/人民币</span>
+                    <input id="rate-local-per-rmb" type="number" step="any" placeholder="例: 0.59" />
+                </div>
+                <span class="hint">若不填使用默认汇率</span>
+            </div>
         </div>
+
         
         <div class="upload-section">
             <!-- 订单表上传区域 -->
@@ -375,6 +460,15 @@
             consumption: null
         };
 
+        // 预设国家与本币/人民币汇率（可在页面覆盖；以下为你提供的最新值）
+        const PRESET_RATES = {
+            '马来西亚': { ccy: 'MYR', rmb: 0.59 },
+            '越南':     { ccy: 'VND', rmb: 3690 },
+            '泰国':     { ccy: 'THB', rmb: 4.53 },
+            '菲律宾':   { ccy: 'PHP', rmb: 8.03 },
+            '新加坡':   { ccy: 'SGD', rmb: 0.18 },
+        };
+
         // 初始化拖拽功能
         document.querySelectorAll('.upload-box').forEach(box => {
             box.addEventListener('dragover', handleDragOver);
@@ -393,12 +487,46 @@
             radio.addEventListener('change', handleModuleChange);
         });
 
+        // 国家选择变更 → 自动覆盖为该国默认汇率
+        document.getElementById('country').addEventListener('change', () => {
+            applyPresetRates(true);
+        });
+
         function handleModuleChange(e) {
             // 更新按钮样式
             document.querySelectorAll('.module-btn').forEach(btn => {
                 btn.classList.remove('active');
             });
             e.target.closest('.module-btn').classList.add('active');
+            // 跨境：显示参数胶囊并套用预设；印尼：隐藏
+            const module = e.target.value;
+            const chip = document.getElementById('param-chip');
+            if (module === 'malaysia') {
+                chip.classList.add('show');
+                chip.setAttribute('aria-hidden', 'false');
+                // 默认选中马来西亚
+                const countrySel = document.getElementById('country');
+                if (!countrySel.value) countrySel.value = '马来西亚';
+                applyPresetRates(true);
+            } else {
+                chip.classList.remove('show');
+                chip.setAttribute('aria-hidden', 'true');
+                // 切换到印尼时，清空隐藏参数，避免残留值被提交
+                const countrySel = document.getElementById('country');
+                const rateInput = document.getElementById('rate-local-per-rmb');
+                if (rateInput) rateInput.value = '';
+                if (countrySel) countrySel.selectedIndex = 0;
+            }
+        }
+
+        function applyPresetRates(force = false) {
+            const country = document.getElementById('country').value;
+            const rateRmb = document.getElementById('rate-local-per-rmb');
+
+            const preset = PRESET_RATES[country];
+            if (preset) {
+                if (force || !rateRmb.value) rateRmb.value = String(preset.rmb ?? '');
+            }
         }
 
         function handleDragOver(e) {
@@ -536,6 +664,14 @@
                 // 添加消耗文件
                 formData.append('consumption', fileStorage.consumption);
 
+                // 附加国家与汇率参数（仅跨境店模块）
+                const country = (document.getElementById('country').value || '').trim();
+                const rateLocalPerRmb = (document.getElementById('rate-local-per-rmb').value || '').trim();
+                if (selectedModule === 'malaysia') {
+                    if (country) formData.append('country', country);
+                    if (rateLocalPerRmb) formData.append('rate_local_per_rmb', rateLocalPerRmb);
+                }
+
                 // 模拟进度更新
                 let progress_value = 0;
                 const progressInterval = setInterval(() => {
@@ -557,8 +693,8 @@
                     const blob = await response.blob();
                     const url = window.URL.createObjectURL(blob);
                     
-                    const moduleName = selectedModule === 'malaysia' ? '马来跨境店' : '印尼';
-                    const downloadName = selectedModule === 'malaysia' ? '马来跨境店财务分析结果.xlsx' : '印尼财务分析结果.xlsx';
+                    const moduleName = selectedModule === 'malaysia' ? (country || '跨境店') : '印尼';
+                    const downloadName = selectedModule === 'malaysia' ? `${moduleName}财务分析结果.xlsx` : '印尼财务分析结果.xlsx';
                     
                     result.className = 'result success';
                     result.innerHTML = `
@@ -573,6 +709,10 @@
                     fileStorage.orders.forEach((file) => formData2.append('orders', file));
                     fileStorage.settlements.forEach((file) => formData2.append('settlements', file));
                     formData2.append('consumption', fileStorage.consumption);
+                    if (selectedModule === 'malaysia') {
+                        if (country) formData2.append('country', country);
+                        if (rateLocalPerRmb) formData2.append('rate_local_per_rmb', rateLocalPerRmb);
+                    }
 
                     try {
                         const res2 = await fetch('/process_summary', { method: 'POST', body: formData2 });
@@ -690,6 +830,14 @@
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
         }
+
+        // 初始化一次模块切换逻辑以填充默认汇率
+        window.addEventListener('DOMContentLoaded', () => {
+            const checked = document.querySelector('input[name="analysis_type"]:checked');
+            if (checked) {
+                handleModuleChange({ target: checked });
+            }
+        });
     </script>
 </body>
 </html> 

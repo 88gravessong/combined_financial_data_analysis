@@ -9,6 +9,7 @@ import tempfile
 import traceback
 from pathlib import Path
 from flask import Flask, request, send_file, jsonify, render_template_string, redirect
+from io import BytesIO
 from werkzeug.utils import secure_filename
 import pandas as pd
 
@@ -46,8 +47,13 @@ def result_page():
 def process_files():
     """处理上传的文件并执行分析"""
     try:
-        # 获取分析模块类型
+        # 获取分析模块类型及前端传入参数
         analysis_type = request.form.get('analysis_type', 'indonesia')
+        # 仅在跨境店模块读取国家与“本币/人民币”
+        country = request.form.get('country') if analysis_type == 'malaysia' else None
+        rate_local_per_rmb = request.form.get('rate_local_per_rmb') if analysis_type == 'malaysia' else None
+        # 印尼模块专用参数（若提供则覆盖默认印尼汇率）
+        idr_per_rmb = request.form.get('idr_per_rmb') if analysis_type == 'indonesia' else None
         
         # 检查是否有文件上传
         if 'orders' not in request.files or 'settlements' not in request.files or 'consumption' not in request.files:
@@ -100,22 +106,30 @@ def process_files():
                         order_files=order_paths,
                         settlement_files=settlement_paths,
                         consumption_file=consumption_path,
-                        output_dir=temp_path
+                        output_dir=temp_path,
+                        local_per_rmb=float(rate_local_per_rmb) if rate_local_per_rmb else None
                     )
-                    download_name = '马来跨境店财务分析结果.xlsx'
+                    # 以所选国家命名下载文件，缺省则用“跨境店”
+                    safe_country = (country or '跨境店').strip()
+                    download_name = f"{safe_country}财务分析结果.xlsx"
                 
                 else:  # indonesia (默认)
                     output_path = process_financial_data(
                         order_files=order_paths,
                         settlement_files=settlement_paths,
                         consumption_file=consumption_path,
-                        output_dir=temp_path
+                        output_dir=temp_path,
+                        idr_per_rmb=float(idr_per_rmb) if idr_per_rmb else None
                     )
                     download_name = '印尼财务分析结果.xlsx'
                 
-                # 返回结果文件
+                # 返回结果文件（以内存方式发送，避免 Windows 上临时文件被占用导致 WinError 32）
+                with open(output_path, 'rb') as f:
+                    data = f.read()
+                buffer = BytesIO(data)
+                buffer.seek(0)
                 return send_file(
-                    output_path,
+                    buffer,
                     as_attachment=True,
                     download_name=download_name,
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -137,6 +151,11 @@ def process_summary():
     """处理上传的文件，返回用于前端渲染的概要指标(JSON)"""
     try:
         analysis_type = request.form.get('analysis_type', 'indonesia')
+        # 仅在跨境店模块读取“本币/人民币”
+        country = request.form.get('country') if analysis_type == 'malaysia' else None
+        rate_local_per_rmb = request.form.get('rate_local_per_rmb') if analysis_type == 'malaysia' else None
+        # 印尼模块专用参数（若提供则覆盖默认印尼汇率）
+        idr_per_rmb = request.form.get('idr_per_rmb') if analysis_type == 'indonesia' else None
 
         if 'orders' not in request.files or 'settlements' not in request.files or 'consumption' not in request.files:
             return jsonify({'error': '缺少必要的文件。请确保上传了订单表、结算表和产品消耗表。'}), 400
@@ -177,12 +196,14 @@ def process_summary():
                         order_files=order_paths,
                         settlement_files=settlement_paths,
                         consumption_file=consumption_path,
+                        local_per_rmb=float(rate_local_per_rmb) if rate_local_per_rmb else None,
                     )
                 else:
                     df = compute_indonesia_summary(
                         order_files=order_paths,
                         settlement_files=settlement_paths,
                         consumption_file=consumption_path,
+                        idr_per_rmb=float(idr_per_rmb) if idr_per_rmb else None,
                     )
 
                 # 转换为JSON

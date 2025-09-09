@@ -142,7 +142,7 @@ python app.py
 在 `analysis_multi.py` 中可修改汇率设置：
 
 ```python
-IDR_PER_RMB, IDR_PER_USD = 2300, 16000  # 印尼盾对人民币和美元汇率
+IDR_PER_RMB = 2300  # 印尼盾对人民币汇率（已移除美元相关）
 ```
 
 ## 📝 注意事项
